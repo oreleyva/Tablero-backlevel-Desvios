@@ -93,13 +93,33 @@ body {
   display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
   padding: 10px 24px 12px; border-top: 1px solid var(--k-line-subtle); background: #FCFAF7;
 }
-.sl { display: flex; flex-direction: column; gap: 3px; }
+.sl { display: flex; flex-direction: column; gap: 3px; position: relative; }
 .sl label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--k-slate); }
 select, input[type=text] {
   font-family: inherit; font-size: 12.5px; color: var(--k-black); background: #fff;
   border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 125px;
 }
 select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px; }
+
+/* Menú flotante de multiselección para Ambiente */
+.multi-btn {
+  font-family: inherit; font-size: 12.5px; color: var(--k-black); background: #fff;
+  border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 140px;
+  display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left;
+}
+.multi-btn:hover { border-color: var(--k-red); }
+.multi-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 100; background: #fff;
+  border: 1px solid var(--k-line); border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  padding: 8px 10px; min-width: 175px; max-height: 240px; overflow-y: auto;
+}
+.multi-opt {
+  display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 6px;
+  cursor: pointer; border-radius: 4px; user-select: none;
+}
+.multi-opt:hover { background: #FAF5F4; }
+.multi-opt input[type=checkbox] { cursor: pointer; accent-color: var(--k-red); }
+.multi-divider { height: 1px; background: var(--k-line-subtle); margin: 6px 0; }
 
 .banner-avance {
   background: var(--k-panel);
@@ -238,7 +258,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
   <div class="gatebox">
     <div class="brand-k">kyndryl</div>
     <h2>Tablero de Saneamiento Integral & Compliance</h2>
-    <p>Consolidado por Servidor Destino (Hostname_Destino) — 123 Tickets Prioritarios</p>
+    <p>Consolidado por Servidor Destino (Hostname_Destino) — 126 Tickets Prioritarios</p>
     <div class="dz" id="dz">
       <div class="dz-title">Arrastra aquí el archivo Excel</div>
       <div class="dz-sub">o haz clic para buscar en tu equipo (ej. Consolidado_Desvios_Filtrado.xlsx)</div>
@@ -291,7 +311,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
         <div class="sl"><label>Ámbito Estatus</label>
           <select id="fAmbito">
             <option value="SOLO_MIGRADOS" selected>Solo Migrados (Enfoque de Entrega)</option>
-            <option value="ALL">Todo el Consolidador (123 Tickets)</option>
+            <option value="ALL">Todo el Consolidador (126 Tickets)</option>
           </select>
         </div>
         <div class="sl"><label>Condición Integral</label>
@@ -305,19 +325,25 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
         </div>
         <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
         <div class="sl"><label>Estado Entrega</label><select id="fEntrega"></select></div>
-        <div class="sl"><label>Ambiente</label><select id="fAmbiente"></select></div>
+        
+        <!-- Filtro Multiselección de Ambientes -->
+        <div class="sl">
+          <label>Ambiente (Múltiple)</label>
+          <button type="button" class="multi-btn" id="btnAmbientesToggle">
+            <span id="txtAmbientesLabel" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;">Todos los Ambientes</span>
+            <span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span>
+          </button>
+          <div class="multi-dropdown hide" id="dropdownAmbientes"></div>
+        </div>
+
         <div class="grow"></div>
         <div class="sl"><label>&nbsp;</label><button class="btn btn-ghost btn-sm" id="btnReset">Restablecer</button></div>
       </div>
     </div>
 
     <div class="page" id="pageContent">
-      <!-- Banner de Avance General de Tickets de Aprovisionamiento (Matriz Cruzada) -->
       <div class="banner-avance" id="bannerAvance"></div>
-
-      <!-- Tarjetas KPI -->
       <div class="kpi-strip" id="kpiStrip"></div>
-
       <div id="tabBody"></div>
     </div>
   </div>
@@ -351,7 +377,7 @@ const state = {
     condicion: '__ALL__',
     nci: '__ALL__',
     entrega: '__ALL__',
-    ambiente: '__ALL__'
+    ambientes: new Set() // Conjunto para multiselección de ambientes
   }
 };
 
@@ -541,7 +567,7 @@ function normalizeData(rows) {
       servidor,
       hostDestino,
       hostDestinoKey,
-      ambiente: (getVal('Ambiente') || 'DES').toUpperCase(),
+      ambiente: (getVal('Ambiente') || 'DES').toUpperCase().trim(),
       owner: getVal('Owner Kyndryl') || 'Sin Asignar',
       so: getVal('Sistema Operativo'),
       soDestino,
@@ -592,8 +618,10 @@ function applyFilters() {
   if (state.filters.entrega !== '__ALL__') {
     pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
   }
-  if (state.filters.ambiente !== '__ALL__') {
-    pool = pool.filter(r => r.ambiente === state.filters.ambiente);
+  
+  // Multiselección de Ambientes
+  if (state.filters.ambientes && state.filters.ambientes.size > 0) {
+    pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   }
 
   state.view = pool;
@@ -613,7 +641,81 @@ function initFilters() {
   fillSelect('#fQ', qs, state.filters.q);
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
-  fillSelect('#fAmbiente', uniq(base.map(r => r.ambiente)).sort(), state.filters.ambiente);
+
+  // Inicialización del Componente Multiselección de Ambientes
+  const allAmbs = uniq(state.raw.map(r => r.ambiente)).filter(Boolean).sort();
+  state.filters.ambientes = new Set(allAmbs); // Por defecto todos marcados
+
+  const dd = $('#dropdownAmbientes');
+  dd.innerHTML = `
+    <label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;">
+      <input type="checkbox" id="chkAmbienteAll" checked> Seleccionar Todos
+    </label>
+    <div class="multi-divider"></div>
+    ${allAmbs.map(a => `
+      <label class="multi-opt">
+        <input type="checkbox" class="chk-amb" value="${esc(a)}" checked> ${esc(a)}
+      </label>
+    `).join('')}
+  `;
+
+  const updateAmbientesLabel = () => {
+    const total = allAmbs.length;
+    const selected = state.filters.ambientes.size;
+    const lbl = $('#txtAmbientesLabel');
+    if (selected === total) {
+      lbl.textContent = `Todos (${total})`;
+    } else if (selected === 0) {
+      lbl.textContent = `Ninguno (0)`;
+    } else if (selected <= 2) {
+      lbl.textContent = Array.from(state.filters.ambientes).join(', ');
+    } else {
+      lbl.textContent = `${selected} seleccionados`;
+    }
+  };
+
+  updateAmbientesLabel();
+
+  // Eventos de checkboxes de ambiente
+  const chkAll = $('#chkAmbienteAll');
+  const chkItems = $$('.chk-amb');
+
+  chkAll.onchange = e => {
+    const checked = e.target.checked;
+    chkItems.forEach(c => { c.checked = checked; });
+    if (checked) {
+      state.filters.ambientes = new Set(allAmbs);
+    } else {
+      state.filters.ambientes.clear();
+    }
+    updateAmbientesLabel();
+    applyFilters();
+  };
+
+  chkItems.forEach(c => {
+    c.onchange = () => {
+      if (c.checked) {
+        state.filters.ambientes.add(c.value);
+      } else {
+        state.filters.ambientes.delete(c.value);
+      }
+      chkAll.checked = (state.filters.ambientes.size === allAmbs.length);
+      updateAmbientesLabel();
+      applyFilters();
+    };
+  });
+
+  // Toggle abrir/cerrar dropdown
+  $('#btnAmbientesToggle').onclick = e => {
+    e.stopPropagation();
+    dd.classList.toggle('hide');
+  };
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#btnAmbientesToggle') && !e.target.closest('#dropdownAmbientes')) {
+      dd.classList.add('hide');
+    }
+  });
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
   $('#fGrupo').onchange = e => { state.filters.grupo = e.target.value; applyFilters(); };
@@ -621,13 +723,15 @@ function initFilters() {
   $('#fCondicion').onchange = e => { state.filters.condicion = e.target.value; applyFilters(); };
   $('#fNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
   $('#fEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
-  $('#fAmbiente').onchange = e => { state.filters.ambiente = e.target.value; applyFilters(); };
 
   $('#btnReset').onclick = () => {
-    state.filters = { q: '__ALL__', grupo: '__ALL__', ambito: 'SOLO_MIGRADOS', condicion: '__ALL__', nci: '__ALL__', entrega: '__ALL__', ambiente: '__ALL__' };
+    state.filters = { q: '__ALL__', grupo: '__ALL__', ambito: 'SOLO_MIGRADOS', condicion: '__ALL__', nci: '__ALL__', entrega: '__ALL__', ambientes: new Set(allAmbs) };
     $('#fGrupo').value = '__ALL__';
     $('#fAmbito').value = 'SOLO_MIGRADOS';
     $('#fCondicion').value = '__ALL__';
+    chkAll.checked = true;
+    chkItems.forEach(c => { c.checked = true; });
+    updateAmbientesLabel();
     initFilters();
     applyFilters();
   };
@@ -658,14 +762,12 @@ function renderKPIs() {
   const allTktsList = Object.keys(tktMap);
   const totTkts = allTktsList.length;
 
-  // Un ticket está "TODO OK" SÓLO si NO tiene observación Y TODOS sus servidores están Compliance
   const tktsAmbosOk = allTktsList.filter(t => !tktMap[t].hasObs && tktMap[t].allServersCompliant).length;
   const tktsPendientes = totTkts - tktsAmbosOk;
 
   const pctOk = pct(tktsAmbosOk, totTkts);
   const pctPend = pct(tktsPendientes, totTkts);
 
-  // Render del Banner de Avance Directo (100% Saneamiento Cruzado)
   $('#bannerAvance').innerHTML = `
     <div class="ba-header">
       <div>
@@ -996,7 +1098,6 @@ function renderQBreakdown() {
     const ambosOk = dedup.filter(r => r.condicionCodigo === 'AMBOS_OK').length;
     const dobleBrecha = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
     
-    // Cálculo estricto de tickets por Q (Ambos cumplen)
     const tktQMap = {};
     subset.forEach(r => {
       const t = r.ticketAprov;
