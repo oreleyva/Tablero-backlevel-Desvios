@@ -103,7 +103,6 @@ select, input[type=text] {
 }
 select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px; }
 
-/* Menú flotante de multiselección para Ambiente */
 .multi-btn {
   font-family: inherit; font-size: 12.5px; color: var(--k-black); background: #fff;
   border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 140px;
@@ -123,7 +122,6 @@ select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px
 .multi-opt input[type=checkbox] { cursor: pointer; accent-color: var(--k-red); }
 .multi-divider { height: 1px; background: var(--k-line-subtle); margin: 6px 0; }
 
-/* Banner de Avance Tricolor */
 .banner-avance {
   background: var(--k-panel);
   border: 1px solid var(--k-line);
@@ -333,7 +331,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
         <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
         <div class="sl"><label>Estado Entrega</label><select id="fEntrega"></select></div>
         
-        <!-- Filtro Multiselección de Ambientes -->
         <div class="sl">
           <label>Ambiente (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnAmbientesToggle">
@@ -361,7 +358,14 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 <script>
 "use strict";
 
-const G1_LIST = ["3642259","3980211","4014480","4014566","4015216","4082923","4098404","4102225","4102266","4104234","4106356","4106834","4015223","4015249","4019305","3943459","3946902","3980157","3988559","4085902","4086504","4086713","4086748","4086777","4092630","4092692","4101315","4106496"];
+// Grupo 01 con los 30 tickets exactos incluyendo 4099618 y 4103130
+const G1_LIST = [
+  "3642259","3980211","4014480","4014566","4015216","4082923","4098404","4102225",
+  "4102266","4104234","4106356","4106834","4015223","4015249","4019305","3943459",
+  "3946902","3980157","3988559","4085902","4086504","4086713","4086748","4086777",
+  "4092630","4092692","4101315","4106496","4099618","4103130"
+];
+
 const G2_LIST = ["3685704","3685705","3946892","3980373","4015230","4015244","4015371","4092683","4092684","3642261","4052177","3893957","3898034","3934912","3946934","3948651","3949657","3955647","3980225","3980337","3980344","3997203","4015215","4015622","4034542","4098425","4106836","4107193","4174589","4015366","4015900","4017290","4042833","3946894","4014898","4086650","4099201","4106419"];
 const G3_LIST = ["3642261","4052177","3898132","3934914","3938874","3940135","3941131","3942863","3946868","3946880","3946910","3947147","3948655","3972276","3977185","3977187","3978269","3980164","3980192","3980328","3980331","3980367","3997167","4025225","4034540","4034556","4034557","4042349","4086594","4137375","4137519","4141488","4141491","4141531","4142519","4142661","4142702","4147331","4149798","4152090","4152533","4153257","4154355","4157970","4158803","4158826","4159964","4159990","4159996","4160009","4160022","4160208","4161549","4161562","4164052","4164160","4164566","4164626","4169168","4102262"];
 
@@ -404,14 +408,14 @@ function isNA(val) {
 function isControlOK(val) {
   const s = norm(val);
   if (!s || s === '-' || s === 'nan' || s === 'null') return false;
-  if (['si', 'sí', 'ok', 'instalado', 'cumple', 'conforme', 'cuenta'].includes(s)) return true;
+  if (['si', 'sí', 'ok', 'instalado', 'cumple', 'conforme', 'cuenta', 'parchado', 'ejecutado'].includes(s)) return true;
   if (isNA(val)) return true;
   return false;
 }
 
 function renderCellControl(val, isOk) {
   if (isNA(val)) {
-    return `<span class="badge badge-neutral" title="No Aplica (Exento de control)">N/A</span>`;
+    return `<span class="badge badge-neutral" title="No Aplica (Exento)">N/A</span>`;
   }
   return isOk ? '✅' : '<span style="color:var(--c-alert);font-weight:700;">❌</span>';
 }
@@ -526,7 +530,7 @@ function normalizeData(rows) {
     const queFalta = getVal('Que Falta?');
     const normQFalta = norm(queFalta);
     
-    // CONDICIÓN ESPECÍFICA: PENDIENTE VALIDACIÓN GESTIÓN DE ACTIVOS (G.A)
+    // Identificación de Pendiente Validación Gestión de Activos
     const esPendienteGA = normAprov.includes('g.a') || 
                           normAprov.includes('gestion activos') || 
                           normAprov.includes('gestión activos') || 
@@ -537,19 +541,22 @@ function normalizeData(rows) {
                           normQFalta.includes('gestión activos') ||
                           (normAprov.includes('subsanado') && normAprov.includes('val'));
 
-    // Observaciones estándar (desvíos activos, flujos observados) excluyendo las que ya están en GA
     const tieneObservacionAprov = !esPendienteGA && (normAprov.includes('observado') || normAprov.includes('desvio') || normAprov.includes('desvío') || normAprov.includes('flujo'));
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
-    // CONTROLES DE COMPLIANCE TÉCNICO (OK O N/A)
+    // CONTROLES DE COMPLIANCE TÉCNICO (7 REQUISITOS O N/A)
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
     const av = getVal('Antivirus');
     const okAv = isControlOK(av);
 
-    const remSo = getVal('Remediado S.O', 'Remediado SO', 'Hardening S.O', 'Parchado S.O');
+    const remSo = getVal('Remediado S.O', 'Remediado SO', 'Hardening S.O', 'Hardening');
     const okRemSo = isControlOK(remSo);
+
+    // NUEVO CONTROL: PARCHADO
+    const parchado = getVal('Parchado', 'Parchado S.O', 'Parchado SO', 'Parcheado', 'Patched');
+    const okParchado = isControlOK(parchado);
 
     const remSub = getVal('Remediado Sub Sistema', 'Remediado Subsistema', 'Hardening Subsistema');
     const okRemSub = isControlOK(remSub);
@@ -561,9 +568,10 @@ function normalizeData(rows) {
     const mon = getVal('Monitoreo(UIM, OEM, GSMA)');
     const okMon = isControlOK(mon);
 
-    const isServerCompliant = okQualys && okAv && okRemSo && okRemSub && okBkp && okMon;
+    // Servidor es compliant si cumple los 7 requisitos (o están marcados N/A)
+    const isServerCompliant = okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon;
 
-    // CONDICIÓN CRUZADA INTEGRAL (5 CATEGORÍAS)
+    // Condición Cruzada Integral (5 Estados)
     let condicionCruzada = 'Desconocido';
     let condicionCodigo = 'OTRO';
 
@@ -584,7 +592,6 @@ function normalizeData(rows) {
       condicionCodigo = 'SOLO_TKT_OK';
     }
 
-    // Normalización NCI
     const nciRaw = getVal('NCI');
     let nciFormateado = nciRaw;
     if (NCI_LABELS[nciRaw]) {
@@ -626,6 +633,7 @@ function normalizeData(rows) {
       okQualys, qualys,
       okAv, av,
       okRemSo, remSo,
+      okParchado, parchado,
       okRemSub, remSub,
       okBkp, bkp, ticketBkp,
       okMon, mon,
@@ -782,7 +790,6 @@ function renderKPIs() {
   const totServers = dedup.length;
   const totRows = v.length;
 
-  // CÁLCULO TRICOLOR DE TICKETS ÚNICOS
   const tktMap = {};
   v.forEach(r => {
     const t = r.ticketAprov;
@@ -798,18 +805,14 @@ function renderKPIs() {
   const allTktsList = Object.keys(tktMap);
   const totTkts = allTktsList.length;
 
-  // 1. Todo OK (Verde): Servidor compliant y ticket 100% limpio sin trámites pendientes
   const tktsAmbosOk = allTktsList.filter(t => !tktMap[t].hasObs && !tktMap[t].isGA && tktMap[t].allServersCompliant).length;
-  // 2. Pendiente Validación G.A (Gris): Subsanado pero en espera de aprobación de Activos
   const tktsPendGA = allTktsList.filter(t => tktMap[t].isGA).length;
-  // 3. Pendientes Reales (Rojo): Desvíos activos o brechas de servidor
   const tktsPendientes = totTkts - tktsAmbosOk - tktsPendGA;
 
   const pctOk = pct(tktsAmbosOk, totTkts);
   const pctGA = pct(tktsPendGA, totTkts);
   const pctPend = pct(tktsPendientes, totTkts);
 
-  // Render del Banner de Avance Tricolor
   $('#bannerAvance').innerHTML = `
     <div class="ba-header">
       <div>
@@ -867,7 +870,7 @@ function renderKPIs() {
     <div class="kpi-card info">
       <div class="lbl">Compliance Servidor</div>
       <div class="val">${fmt(compliantServers)} <small style="font-size:15px;font-weight:600">(${pct(compliantServers, totServers)})</small></div>
-      <div class="sub">Qualys + AV + Rem + Bkp + Mon (o N/A)</div>
+      <div class="sub">Qualys + AV + Rem + Parch + Bkp + Mon</div>
     </div>
     <div class="kpi-card ok">
       <div class="lbl">⭐ Servidores Ambos OK</div>
@@ -892,7 +895,6 @@ function renderCockpit() {
   const dedup = dedupeByDestServer(v);
   const tot = dedup.length || 1;
 
-  // CÁLCULO DE CUADRANTES DE LA MATRIZ DE SANEAMIENTO (5 ESTADOS)
   const cAmbosOk = dedup.filter(r => r.condicionCodigo === 'AMBOS_OK').length;
   const cPendGA = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
   const cSoloServOk = dedup.filter(r => r.condicionCodigo === 'SOLO_SERV_OK').length;
@@ -927,8 +929,9 @@ function renderCockpit() {
     { name: 'Backup Configurado', ok: dedup.filter(r => r.okBkp).length },
     { name: 'Qualys Activo', ok: dedup.filter(r => r.okQualys).length },
     { name: 'Remediación S.O (o N/A)', ok: dedup.filter(r => r.okRemSo).length },
+    { name: 'Parchado S.O (o N/A)', ok: dedup.filter(r => r.okParchado).length },
     { name: 'Remediación Subsistema (o N/A)', ok: dedup.filter(r => r.okRemSub).length },
-    { name: 'COMPLIANCE TOTAL (6/6)', ok: compOk }
+    { name: 'COMPLIANCE TOTAL (7/7)', ok: compOk }
   ];
 
   const qCounts = {};
@@ -1374,10 +1377,11 @@ function renderControles() {
   const rows = [
     { name: '1. Agente Qualys', ok: dedup.filter(r => r.okQualys).length, desc: 'Qualys instalado o validado como N/A' },
     { name: '2. Antivirus Corporativo', ok: dedup.filter(r => r.okAv).length, desc: 'Antivirus activo o validado como N/A' },
-    { name: '3. Remediación S.O (Hardening / Parchado)', ok: dedup.filter(r => r.okRemSo).length, desc: 'Hardening ejecutado o exento (N/A / Win2008)' },
-    { name: '4. Remediación Subsistema', ok: dedup.filter(r => r.okRemSub).length, desc: 'Hardening subsistema cerrado o No Aplica' },
-    { name: '5. Política & Ticket Backup', ok: dedup.filter(r => r.okBkp).length, desc: 'Backup activo con ticket o validado como N/A' },
-    { name: '6. Monitoreo Activo', ok: dedup.filter(r => r.okMon).length, desc: 'Monitoreo reportando o validado como N/A' }
+    { name: '3. Remediación S.O (Hardening)', ok: dedup.filter(r => r.okRemSo).length, desc: 'Hardening ejecutado o exento (N/A / Win2008)' },
+    { name: '4. Parchado S.O', ok: dedup.filter(r => r.okParchado).length, desc: 'Parchado de seguridad al día o exento (N/A)' },
+    { name: '5. Remediación Subsistema', ok: dedup.filter(r => r.okRemSub).length, desc: 'Hardening subsistema cerrado o No Aplica' },
+    { name: '6. Política & Ticket Backup', ok: dedup.filter(r => r.okBkp).length, desc: 'Backup activo con ticket o validado como N/A' },
+    { name: '7. Monitoreo Activo', ok: dedup.filter(r => r.okMon).length, desc: 'Monitoreo reportando o validado como N/A' }
   ];
 
   $('#tabBody').innerHTML = `
@@ -1526,6 +1530,7 @@ function renderDetalle() {
               <th>Qualys</th>
               <th>Antivirus</th>
               <th>Rem. S.O</th>
+              <th>Parchado</th>
               <th>Rem. Sub</th>
               <th>Backup</th>
               <th>Monitoreo</th>
@@ -1563,13 +1568,14 @@ function renderDetalle() {
         <td class="num">${renderCellControl(r.qualys, r.okQualys)}</td>
         <td class="num">${renderCellControl(r.av, r.okAv)}</td>
         <td class="num">${renderCellControl(r.remSo, r.okRemSo)}</td>
+        <td class="num">${renderCellControl(r.parchado, r.okParchado)}</td>
         <td class="num">${renderCellControl(r.remSub, r.okRemSub)}</td>
         <td class="num">${renderCellControl(r.bkp, r.okBkp)}</td>
         <td class="num">${renderCellControl(r.mon, r.okMon)}</td>
         <td class="num font-weight:700;color:${r.isServerCompliant?'var(--c-ok)':'var(--c-alert)'};">${r.isServerCompliant ? '✅ OK' : '❌ PENDIENTE'}</td>
         <td style="font-weight:600;font-size:11px;color:${r.tieneNci?'var(--k-red)':'inherit'};">${esc(r.nci || '—')}</td>
       </tr>
-    `).join('') + (rows.length > 300 ? `<tr><td colspan="18" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
+    `).join('') + (rows.length > 300 ? `<tr><td colspan="19" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
   };
 
   paintRows(v);
@@ -1643,14 +1649,15 @@ function drillServer(id) {
       <div><b>Estado Ticket:</b> <span class="badge ${r.esPendienteGA?'badge-ga':(r.tieneObservacionAprov?'badge-alert':'badge-ok')}">${esc(r.estadoAprov)}</span></div>
       <div><b>NCI:</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.nci || 'No asignado')}</span></div>
       <div><b>Categoría Regularización:</b> ${esc(r.catReg)}</div>
-      <div><b>Compliance Servidor:</b> ${r.isServerCompliant ? '⭐ CONFORME (6/6 OK o N/A)' : '❌ CON BRECHA TÉCNICA'}</div>
+      <div><b>Compliance Servidor:</b> ${r.isServerCompliant ? '⭐ CONFORME (7/7 OK o N/A)' : '❌ CON BRECHA TÉCNICA'}</div>
     </div>
     <div style="border-top:1px solid var(--k-line);padding-top:12px;margin-bottom:12px;">
-      <h4 style="margin:0 0 8px;">Checklist de Controles Técnicos:</h4>
+      <h4 style="margin:0 0 8px;">Checklist de Controles Técnicos (7/7 Mandatorios):</h4>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;">
         ${renderBadgeCheck('Qualys', r.qualys, r.okQualys)}
         ${renderBadgeCheck('Antivirus', r.av, r.okAv)}
         ${renderBadgeCheck('Remediación S.O', r.remSo, r.okRemSo)}
+        ${renderBadgeCheck('Parchado S.O', r.parchado, r.okParchado)}
         ${renderBadgeCheck('Remediación Sub', r.remSub, r.okRemSub)}
         ${renderBadgeCheck('Backup', r.bkp, r.okBkp)}
         ${renderBadgeCheck('Monitoreo', r.mon, r.okMon)}
@@ -1777,6 +1784,7 @@ function initEvents() {
       'Qualys': isNA(r.qualys) ? 'N/A' : (r.okQualys ? 'SI' : 'NO'),
       'Antivirus': isNA(r.av) ? 'N/A' : (r.okAv ? 'SI' : 'NO'),
       'Remediado S.O': isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'SI' : 'NO'),
+      'Parchado S.O': isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'SI' : 'NO'),
       'Remediado Sub': isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'SI' : 'NO'),
       'Backup': isNA(r.bkp) ? 'N/A' : (r.okBkp ? 'SI' : 'NO'),
       'Monitoreo': isNA(r.mon) ? 'N/A' : (r.okMon ? 'SI' : 'NO'),
