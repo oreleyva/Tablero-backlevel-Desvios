@@ -358,7 +358,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 <script>
 "use strict";
 
-// Grupo 01 con 30 tickets
 const G1_LIST = [
   "3642259","3980211","4014480","4014566","4015216","4082923","4098404","4102225",
   "4102266","4104234","4106356","4106834","4015223","4015249","4019305","3943459",
@@ -376,7 +375,6 @@ const NCI_LABELS = {
   "10563632": "10563632 - Backlevel"
 };
 
-// CALENDARIO OFICIAL DE FERIADOS PERÚ (2025, 2026, 2027)
 const FERIADOS_PERU = new Set([
   // 2025
   "2025-01-01", "2025-04-17", "2025-04-18", "2025-05-01", "2025-06-07",
@@ -392,7 +390,6 @@ const FERIADOS_PERU = new Set([
   "2027-08-30", "2027-10-08", "2027-11-01", "2027-12-08", "2027-12-09", "2027-12-25"
 ]);
 
-// CÁLCULO DE DÍAS HÁBILES TRANSCURRIDOS (LUNES A VIERNES SIN FERIADOS)
 function parseToDateObj(v) {
   if (!v) return null;
   if (v instanceof Date && !isNaN(v)) return v;
@@ -419,11 +416,10 @@ function calcularDiasHabiles(fechaInicio, fechaFin = new Date()) {
 
   let diasHabiles = 0;
   let cur = new Date(inicio);
-  // Comenzar a contar a partir del día siguiente
   cur.setDate(cur.getDate() + 1);
 
   while (cur <= fin) {
-    const dayOfWeek = cur.getDay(); // 0 = Dom, 6 = Sáb
+    const dayOfWeek = cur.getDay();
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       const y = cur.getFullYear();
       const m = String(cur.getMonth() + 1).padStart(2, '0');
@@ -556,20 +552,27 @@ function normalizeData(rows) {
     const hostDestinoKey = norm(hostDestino);
     const soDestino = getVal('Sistema Operativo_Destino', 'SO Destino');
 
-    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS (LUN A VIE SIN FERIADOS)
-    const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
-    const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
-    const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
-    const supero22Dias = diasHabiles !== null && diasHabiles > 22;
-
-    const etiqCat = getVal('Etiqueta (Categoria)');
+    // EVALUACIÓN DE ETIQUETA CATEGORÍA
+    const etiqCat = getVal('Etiqueta (Categoria)', 'Etiqueta (Categoria) ');
     const estadoSubCat = getVal('Estado (Sub_Categoria)');
     const normCat = norm(etiqCat);
     const normSub = norm(estadoSubCat);
 
+    // REGLA ESTRICTA DE OBJECIÓN: Si dice "no aceptado", la entrega NO es válida bajo ningún criterio
+    const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
+
+    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS (LUN A VIE SIN FERIADOS DE PERÚ)
+    const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
+    const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
+    const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
+    const supero22Dias = (diasHabiles !== null && diasHabiles > 22);
+
     let estadoEntrega = 'Otros / Por Definir';
-    // REGLA SOLICITADA: Si superó los 22 días hábiles o ya está aceptado formalmente
-    if (supero22Dias || normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado')) {
+
+    if (esRechazadoNoAceptado) {
+      // Prioridad máxima: objeción explícita
+      estadoEntrega = 'No Aceptado / Observado';
+    } else if (supero22Dias || (normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado'))) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
@@ -676,6 +679,7 @@ function normalizeData(rows) {
       ticketAprov: tktClean,
       grupoPrioridad,
       estadoEntrega,
+      esRechazadoNoAceptado,
       estadoAprov,
       esPendienteGA,
       tieneObservacionAprov,
@@ -898,7 +902,9 @@ function renderKPIs() {
   const pendGAServ = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
   const dobleBrechaServ = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
   const compliantServers = dedup.filter(r => r.isServerCompliant).length;
-  const servidoresSupero22 = dedup.filter(r => r.supero22Dias).length;
+  // Solo cuentan como superados si NO tienen objeción explícita
+  const servidoresSupero22 = dedup.filter(r => r.supero22Dias && !r.esRechazadoNoAceptado).length;
+  const servidoresNoAceptados = dedup.filter(r => r.esRechazadoNoAceptado).length;
 
   $('#kpiStrip').innerHTML = `
     <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
@@ -917,9 +923,14 @@ function renderKPIs() {
       <div class="sub">Con observación o brecha técnica</div>
     </div>
     <div class="kpi-card ok">
-      <div class="lbl">Excedieron 22 Días Útiles</div>
+      <div class="lbl">Aceptados por SLA (22d)</div>
       <div class="val">${fmt(servidoresSupero22)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero22, totServers)})</small></div>
-      <div class="sub">Aceptados formalmente por SLA</div>
+      <div class="sub">Sin objeción y >22 días útiles</div>
+    </div>
+    <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+      <div class="lbl">🚨 Entrega No Aceptada</div>
+      <div class="val">${fmt(servidoresNoAceptados)} <small style="font-size:14px;font-weight:600">(${pct(servidoresNoAceptados, totServers)})</small></div>
+      <div class="sub">Marcados "No Aceptado" en Etiqueta</div>
     </div>
     <div class="kpi-card info">
       <div class="lbl">Compliance Servidor</div>
@@ -930,11 +941,6 @@ function renderKPIs() {
       <div class="lbl">⭐ Servidores Ambos OK</div>
       <div class="val">${fmt(ambosOkServ)} <small style="font-size:15px;font-weight:600">(${pct(ambosOkServ, totServers)})</small></div>
       <div class="sub">Servidor Comp. + Ticket Limpio</div>
-    </div>
-    <div class="kpi-card ga">
-      <div class="lbl">⏳ Servidores Pend. G.A</div>
-      <div class="val">${fmt(pendGAServ)} <small style="font-size:15px;font-weight:600">(${pct(pendGAServ, totServers)})</small></div>
-      <div class="sub">Subsanado / Espera de V°B°</div>
     </div>
     <div class="kpi-card alert">
       <div class="lbl">🚨 Servidores Doble Brecha</div>
@@ -1059,7 +1065,7 @@ function renderCockpit() {
         <div class="th">
           <div>
             <h3>Estado de Entrega del Servidor a IBK (SLA 22 Días Útiles)</h3>
-            <div class="sub">Entregado/Aceptado vs Pendiente de entrega en IBK</div>
+            <div class="sub">Entregado/Aceptado vs No Aceptado vs Pendiente de entrega</div>
           </div>
         </div>
         <div class="cbox"><canvas id="cEntrega"></canvas></div>
@@ -1197,7 +1203,7 @@ function renderCockpit() {
       labels: Object.keys(entregaCounts),
       datasets: [{
         data: Object.values(entregaCounts),
-        backgroundColor: ['#107C41', '#D9730D', '#BA1A1A', '#0263E0', '#545454']
+        backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454']
       }]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
@@ -1232,9 +1238,10 @@ function renderQBreakdown() {
     const qTktsPend = qTkts.length - qTktsAmbosOk - qTktsGA;
 
     const entregados = dedup.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length;
+    const noAceptados = dedup.filter(r => r.estadoEntrega === 'No Aceptado / Observado').length;
     const pendEntrega = dedup.filter(r => r.estadoEntrega === 'Pendiente de entrega').length;
 
-    return { q, totServers, totRows, ambosOk, pendGA, dobleBrecha, qTkts: qTkts.length, qTktsAmbosOk, qTktsGA, qTktsPend, entregados, pendEntrega, pctAmbos: pct(ambosOk, totServers), pctTktsOk: pct(qTktsAmbosOk, qTkts.length) };
+    return { q, totServers, totRows, ambosOk, pendGA, dobleBrecha, qTkts: qTkts.length, qTktsAmbosOk, qTktsGA, qTktsPend, entregados, noAceptados, pendEntrega, pctAmbos: pct(ambosOk, totServers), pctTktsOk: pct(qTktsAmbosOk, qTkts.length) };
   });
 
   $('#tabBody').innerHTML = `
@@ -1258,7 +1265,8 @@ function renderQBreakdown() {
               <th class="num">⭐ Ambos OK</th>
               <th class="num">⏳ Pend. G.A</th>
               <th class="num">🚨 Doble Brecha</th>
-              <th class="num">Entregado</th>
+              <th class="num">Entregado / Aceptado</th>
+              <th class="num">No Aceptado</th>
             </tr>
           </thead>
           <tbody>
@@ -1274,6 +1282,7 @@ function renderQBreakdown() {
                 <td class="num" style="color:var(--c-ga);font-weight:700;">${fmt(d.pendGA)}</td>
                 <td class="num" style="color:var(--c-alert);font-weight:700;">${fmt(d.dobleBrecha)}</td>
                 <td class="num" style="color:var(--c-ok);">${fmt(d.entregados)}</td>
+                <td class="num" style="color:${d.noAceptados>0?'var(--c-alert)':'inherit'};font-weight:600;">${fmt(d.noAceptados)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1543,7 +1552,7 @@ function renderDetalle() {
   const totRows = v.length;
 
   const baseNci = uniq(state.raw.map(r => r.nci)).filter(Boolean).sort();
-  const baseEntrega = ['Entregado / Aceptado', 'Pendiente de entrega', 'Desestimado', 'Reprogramado'];
+  const baseEntrega = ['Entregado / Aceptado', 'No Aceptado / Observado', 'Pendiente de entrega', 'Desestimado', 'Reprogramado'];
 
   $('#tabBody').innerHTML = `
     <div class="tile">
@@ -1558,7 +1567,7 @@ function renderDetalle() {
             <option value="__ALL__">Todos los NCI</option>
             ${baseNci.map(n => `<option value="${esc(n)}" ${state.filters.nci===n?'selected':''}>${esc(n)}</option>`).join('')}
           </select>
-          <select id="dtFilterEntrega" style="min-width:160px;">
+          <select id="dtFilterEntrega" style="min-width:180px;">
             <option value="__ALL__">Todas las Entregas</option>
             ${baseEntrega.map(e => `<option value="${esc(e)}" ${state.filters.entrega===e?'selected':''}>${esc(e)}</option>`).join('')}
           </select>
@@ -1610,15 +1619,21 @@ function renderDetalle() {
             ${esc(r.condicionCruzada)}
           </span>
         </td>
-        <td><span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='Pendiente de entrega'?'badge-warn':'badge-neutral')}">${esc(r.estadoEntrega)}</span></td>
         <td>
-          ${r.diasHabiles !== null ? (
+          <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':(r.estadoEntrega==='Pendiente de entrega'?'badge-warn':'badge-neutral'))}">
+            ${esc(r.estadoEntrega)}
+          </span>
+        </td>
+        <td>
+          ${r.esRechazadoNoAceptado ? (
+            `<span class="badge badge-alert" style="font-weight:700;">❌ OBJETO: NO ACEPTADO</span>`
+          ) : (r.diasHabiles !== null ? (
             r.supero22Dias 
               ? `<span class="badge badge-ok" style="font-weight:700;">✅ EXCEDIÓ 22D (ACEPTADO)</span>`
               : `<span class="badge badge-warn" style="font-weight:700;">⏳ EN PLAZO (${r.diasHabiles}/22d)</span>`
-          ) : '<span style="color:var(--k-slate);">Sin fecha</span>'}
+          ) : '<span style="color:var(--k-slate);">Sin fecha</span>')}
         </td>
-        <td class="num" style="font-weight:700;color:${r.supero22Dias?'var(--c-ok)':'inherit'};">
+        <td class="num" style="font-weight:700;color:${r.esRechazadoNoAceptado?'var(--c-alert)':(r.supero22Dias?'var(--c-ok)':'inherit')};">
           ${r.diasHabiles !== null ? `${r.diasHabiles} días útiles` : '—'}
         </td>
         <td style="white-space:nowrap;font-weight:500;">${esc(r.fechaEntrega)}</td>
@@ -1697,13 +1712,19 @@ function drillServer(id) {
     return `<div class="badge ${isOk ? 'badge-ok' : 'badge-alert'}" style="padding:4px 8px;">${name}: ${isOk ? 'CONFORME' : 'NO CONFORME'}</div>`;
   };
 
+  const slaTexto = r.esRechazadoNoAceptado 
+    ? '🚨 NO ACEPTADO (ENTREGA INVALIDADA POR OBJECIÓN)' 
+    : (r.supero22Dias 
+        ? `✅ EXCEDIÓ 22 DÍAS HÁBILES (${r.diasHabiles} días transcurridos - Aceptado por SLA)` 
+        : (r.diasHabiles !== null ? `⏳ EN PLAZO (${r.diasHabiles} de 22 días hábiles)` : 'Sin fecha'));
+
   const content = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
       <div><b>Servidor Destino:</b> <span class="mono" style="color:var(--k-red);font-weight:700;">${esc(r.hostDestino)}</span></div>
       <div><b>Servidor Origen:</b> <span class="mono">${esc(r.servidor)}</span></div>
       <div><b>Condición Integral:</b> <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">${esc(r.condicionCruzada)}</span></div>
-      <div><b>Estado de Entrega:</b> <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':'badge-warn'}">${esc(r.estadoEntrega)}</span></div>
-      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${r.supero22Dias?'badge-ok':'badge-warn'}">${r.supero22Dias ? `EXCEDIÓ 22D (${r.diasHabiles} días hábiles transcurridos)` : (r.diasHabiles !== null ? `EN PLAZO (${r.diasHabiles}/22 días)` : 'Sin fecha')}</span></div>
+      <div><b>Estado de Entrega:</b> <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn')}">${esc(r.estadoEntrega)}</span></div>
+      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${r.esRechazadoNoAceptado?'badge-alert':(r.supero22Dias?'badge-ok':'badge-warn')}">${slaTexto}</span></div>
       <div><b>Fecha Entrega IBK:</b> ${esc(r.fechaEntrega)}</div>
       <div><b>Trimestre (Q):</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.q)}</span></div>
       <div><b>Grupo de Prioridad:</b> ${esc(r.grupoPrioridad)}</div>
@@ -1836,7 +1857,8 @@ function initEvents() {
       'Servidor Destino': r.hostDestino,
       'Condición Integral': r.condicionCruzada,
       'Estado Entrega': r.estadoEntrega,
-      'SLA Superó 22d': r.supero22Dias ? 'SI (ACEPTADO)' : 'NO',
+      'Es Rechazado / No Aceptado': r.esRechazadoNoAceptado ? 'SI' : 'NO',
+      'SLA Superó 22d': (r.supero22Dias && !r.esRechazadoNoAceptado) ? 'SI (ACEPTADO)' : 'NO',
       'Días Hábiles Transcurridos': r.diasHabiles !== null ? r.diasHabiles : '',
       'Fecha Entrega IBK': r.fechaEntrega,
       'Siglas': r.siglas,
