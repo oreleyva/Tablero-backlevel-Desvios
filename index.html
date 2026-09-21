@@ -151,7 +151,7 @@ select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px
 .progress-fill-ga { background: var(--c-ga); height: 100%; transition: width 0.3s ease; }
 .progress-fill-pend { background: var(--c-alert); height: 100%; transition: width 0.3s ease; }
 
-.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .kpi-card {
   background: var(--k-panel); border: 1px solid var(--k-line); border-radius: 8px;
   padding: 12px 14px; box-shadow: var(--shadow); display: flex; flex-direction: column;
@@ -358,7 +358,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 <script>
 "use strict";
 
-// Grupo 01 con los 30 tickets exactos incluyendo 4099618 y 4103130
+// Grupo 01 con 30 tickets
 const G1_LIST = [
   "3642259","3980211","4014480","4014566","4015216","4082923","4098404","4102225",
   "4102266","4104234","4106356","4106834","4015223","4015249","4019305","3943459",
@@ -375,6 +375,68 @@ const NCI_LABELS = {
   "10563409": "10563409 - Backlevel",
   "10563632": "10563632 - Backlevel"
 };
+
+// CALENDARIO OFICIAL DE FERIADOS PERÚ (2025, 2026, 2027)
+const FERIADOS_PERU = new Set([
+  // 2025
+  "2025-01-01", "2025-04-17", "2025-04-18", "2025-05-01", "2025-06-07",
+  "2025-06-29", "2025-07-23", "2025-07-28", "2025-07-29", "2025-08-06",
+  "2025-08-30", "2025-10-08", "2025-11-01", "2025-12-08", "2025-12-09", "2025-12-25",
+  // 2026
+  "2026-01-01", "2026-04-02", "2026-04-03", "2026-05-01", "2026-06-07",
+  "2026-06-29", "2026-07-23", "2026-07-28", "2026-07-29", "2026-08-06",
+  "2026-08-30", "2026-10-08", "2026-11-01", "2026-12-08", "2026-12-09", "2026-12-25",
+  // 2027
+  "2027-01-01", "2027-03-25", "2027-03-26", "2027-05-01", "2027-06-07",
+  "2027-06-29", "2027-07-23", "2027-07-28", "2027-07-29", "2027-08-06",
+  "2027-08-30", "2027-10-08", "2027-11-01", "2027-12-08", "2027-12-09", "2027-12-25"
+]);
+
+// CÁLCULO DE DÍAS HÁBILES TRANSCURRIDOS (LUNES A VIERNES SIN FERIADOS)
+function parseToDateObj(v) {
+  if (!v) return null;
+  if (v instanceof Date && !isNaN(v)) return v;
+  const s = String(v).trim();
+  if (!s || s === 'NaT' || s === 'null' || s === '-' || s === '—') return null;
+  const mMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (mMatch) {
+    return new Date(parseInt(mMatch[3], 10), parseInt(mMatch[2], 10) - 1, parseInt(mMatch[1], 10));
+  }
+  const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
+  }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+function calcularDiasHabiles(fechaInicio, fechaFin = new Date()) {
+  if (!fechaInicio) return null;
+  const inicio = new Date(fechaInicio.getFullYear(), fechaInicio.getMonth(), fechaInicio.getDate());
+  const fin = new Date(fechaFin.getFullYear(), fechaFin.getMonth(), fechaFin.getDate());
+  
+  if (inicio >= fin) return 0;
+
+  let diasHabiles = 0;
+  let cur = new Date(inicio);
+  // Comenzar a contar a partir del día siguiente
+  cur.setDate(cur.getDate() + 1);
+
+  while (cur <= fin) {
+    const dayOfWeek = cur.getDay(); // 0 = Dom, 6 = Sáb
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      const d = String(cur.getDate()).padStart(2, '0');
+      const isoKey = `${y}-${m}-${d}`;
+      if (!FERIADOS_PERU.has(isoKey)) {
+        diasHabiles++;
+      }
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return diasHabiles;
+}
 
 const state = {
   raw: [],
@@ -421,27 +483,12 @@ function renderCellControl(val, isOk) {
 }
 
 function fmtFecha(v) {
-  if (v == null) return '—';
-  if (v instanceof Date && !isNaN(v)) {
-    const d = String(v.getDate()).padStart(2, '0');
-    const m = String(v.getMonth() + 1).padStart(2, '0');
-    const y = v.getFullYear();
-    return `${d}/${m}/${y}`;
-  }
-  const s = String(v).trim();
-  if (!s || s === 'NaT' || s === 'null' || s === 'undefined' || s === '-') return '—';
-  const parsed = new Date(s);
-  if (!isNaN(parsed) && parsed.getFullYear() > 1990) {
-    const d = String(parsed.getDate()).padStart(2, '0');
-    const m = String(parsed.getMonth() + 1).padStart(2, '0');
-    const y = parsed.getFullYear();
-    return `${d}/${m}/${y}`;
-  }
-  const mMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (mMatch) {
-    return `${String(mMatch[3]).padStart(2, '0')}/${String(mMatch[2]).padStart(2, '0')}/${mMatch[1]}`;
-  }
-  return s;
+  const d = parseToDateObj(v);
+  if (!d) return '—';
+  const dia = String(d.getDate()).padStart(2, '0');
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const y = d.getFullYear();
+  return `${dia}/${mes}/${y}`;
 }
 
 function distinctDestServers(rows) {
@@ -509,13 +556,20 @@ function normalizeData(rows) {
     const hostDestinoKey = norm(hostDestino);
     const soDestino = getVal('Sistema Operativo_Destino', 'SO Destino');
 
+    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS (LUN A VIE SIN FERIADOS)
+    const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
+    const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
+    const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
+    const supero22Dias = diasHabiles !== null && diasHabiles > 22;
+
     const etiqCat = getVal('Etiqueta (Categoria)');
     const estadoSubCat = getVal('Estado (Sub_Categoria)');
     const normCat = norm(etiqCat);
     const normSub = norm(estadoSubCat);
 
     let estadoEntrega = 'Otros / Por Definir';
-    if (normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado')) {
+    // REGLA SOLICITADA: Si superó los 22 días hábiles o ya está aceptado formalmente
+    if (supero22Dias || normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado')) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
@@ -544,7 +598,7 @@ function normalizeData(rows) {
     const tieneObservacionAprov = !esPendienteGA && (normAprov.includes('observado') || normAprov.includes('desvio') || normAprov.includes('desvío') || normAprov.includes('flujo'));
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
-    // CONTROLES DE COMPLIANCE TÉCNICO (7 REQUISITOS O N/A)
+    // CONTROLES DE COMPLIANCE TÉCNICO (7 REQUISITOS MANDATORIOS O N/A)
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
@@ -554,7 +608,6 @@ function normalizeData(rows) {
     const remSo = getVal('Remediado S.O', 'Remediado SO', 'Hardening S.O', 'Hardening');
     const okRemSo = isControlOK(remSo);
 
-    // NUEVO CONTROL: PARCHADO
     const parchado = getVal('Parchado', 'Parchado S.O', 'Parchado SO', 'Parcheado', 'Patched');
     const okParchado = isControlOK(parchado);
 
@@ -568,10 +621,8 @@ function normalizeData(rows) {
     const mon = getVal('Monitoreo(UIM, OEM, GSMA)');
     const okMon = isControlOK(mon);
 
-    // Servidor es compliant si cumple los 7 requisitos (o están marcados N/A)
     const isServerCompliant = okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon;
 
-    // Condición Cruzada Integral (5 Estados)
     let condicionCruzada = 'Desconocido';
     let condicionCodigo = 'OTRO';
 
@@ -608,7 +659,6 @@ function normalizeData(rows) {
     const tieneNci = nciFormateado !== '' && !['no asignado','no requiere','desestimado','-'].includes(norm(nciFormateado));
 
     const catReg = getVal('Categoria de Regularizacion', 'Categoria de Regularizacion ') || 'Sin regularizar';
-    const fechaEntregaRaw = getVal('Fecha de Entrega IBK');
 
     return {
       _id: i + 1,
@@ -644,7 +694,10 @@ function normalizeData(rows) {
       tieneNci,
       catReg,
       queFalta,
-      fechaEntrega: fmtFecha(fechaEntregaRaw)
+      fechaEntrega: fmtFecha(fechaEntregaRaw),
+      fechaEntregaObj,
+      diasHabiles,
+      supero22Dias
     };
   });
 }
@@ -845,6 +898,7 @@ function renderKPIs() {
   const pendGAServ = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
   const dobleBrechaServ = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
   const compliantServers = dedup.filter(r => r.isServerCompliant).length;
+  const servidoresSupero22 = dedup.filter(r => r.supero22Dias).length;
 
   $('#kpiStrip').innerHTML = `
     <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
@@ -862,10 +916,10 @@ function renderKPIs() {
       <div class="val">${fmt(tktsPendientes)} <small style="font-size:14px;font-weight:700">(${pctPend})</small></div>
       <div class="sub">Con observación o brecha técnica</div>
     </div>
-    <div class="kpi-card">
-      <div class="lbl">Servidores en Scope</div>
-      <div class="val">${fmt(totServers)} <small style="font-size:13px;font-weight:600;color:var(--k-slate);">destinos</small></div>
-      <div class="sub">${fmt(totRows)} relaciones de aplicaciones</div>
+    <div class="kpi-card ok">
+      <div class="lbl">Excedieron 22 Días Útiles</div>
+      <div class="val">${fmt(servidoresSupero22)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero22, totServers)})</small></div>
+      <div class="sub">Aceptados formalmente por SLA</div>
     </div>
     <div class="kpi-card info">
       <div class="lbl">Compliance Servidor</div>
@@ -1004,7 +1058,7 @@ function renderCockpit() {
       <div class="tile">
         <div class="th">
           <div>
-            <h3>Estado de Entrega del Servidor a IBK</h3>
+            <h3>Estado de Entrega del Servidor a IBK (SLA 22 Días Útiles)</h3>
             <div class="sub">Entregado/Aceptado vs Pendiente de entrega en IBK</div>
           </div>
         </div>
@@ -1050,10 +1104,7 @@ function renderCockpit() {
         const selectedCode = matrizCodigos[clickedIdx];
         
         state.filters.condicion = selectedCode;
-        $('#fCondicion').value = selectedCode;
-        applyFilters();
-
-        $$('.navbtn').forEach(b => b.classList.remove('on'));
+        $('#fCondicion').value = selectedCode;         applyFilters();          $$('.navbtn').forEach(b => b.classList.remove('on'));
         const invBtn = document.querySelector('.navbtn[data-tab="detalle"]');
         if (invBtn) invBtn.classList.add('on');
         state.tab = 'detalle';
@@ -1524,6 +1575,8 @@ function renderDetalle() {
               <th>Servidor Destino</th>
               <th>Condición Integral</th>
               <th>Estado Entrega</th>
+              <th>SLA Entrega (22d)</th>
+              <th>Días Hábiles Transcurridos</th>
               <th>Fecha Entrega IBK</th>
               <th>Ticket Aprov.</th>
               <th>Obs. Aprov.</th>
@@ -1558,6 +1611,16 @@ function renderDetalle() {
           </span>
         </td>
         <td><span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='Pendiente de entrega'?'badge-warn':'badge-neutral')}">${esc(r.estadoEntrega)}</span></td>
+        <td>
+          ${r.diasHabiles !== null ? (
+            r.supero22Dias 
+              ? `<span class="badge badge-ok" style="font-weight:700;">✅ EXCEDIÓ 22D (ACEPTADO)</span>`
+              : `<span class="badge badge-warn" style="font-weight:700;">⏳ EN PLAZO (${r.diasHabiles}/22d)</span>`
+          ) : '<span style="color:var(--k-slate);">Sin fecha</span>'}
+        </td>
+        <td class="num" style="font-weight:700;color:${r.supero22Dias?'var(--c-ok)':'inherit'};">
+          ${r.diasHabiles !== null ? `${r.diasHabiles} días útiles` : '—'}
+        </td>
         <td style="white-space:nowrap;font-weight:500;">${esc(r.fechaEntrega)}</td>
         <td class="mono">${esc(r.ticketAprov || '—')}</td>
         <td>
@@ -1575,7 +1638,7 @@ function renderDetalle() {
         <td class="num font-weight:700;color:${r.isServerCompliant?'var(--c-ok)':'var(--c-alert)'};">${r.isServerCompliant ? '✅ OK' : '❌ PENDIENTE'}</td>
         <td style="font-weight:600;font-size:11px;color:${r.tieneNci?'var(--k-red)':'inherit'};">${esc(r.nci || '—')}</td>
       </tr>
-    `).join('') + (rows.length > 300 ? `<tr><td colspan="19" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
+    `).join('') + (rows.length > 300 ? `<tr><td colspan="21" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
   };
 
   paintRows(v);
@@ -1640,6 +1703,7 @@ function drillServer(id) {
       <div><b>Servidor Origen:</b> <span class="mono">${esc(r.servidor)}</span></div>
       <div><b>Condición Integral:</b> <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">${esc(r.condicionCruzada)}</span></div>
       <div><b>Estado de Entrega:</b> <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':'badge-warn'}">${esc(r.estadoEntrega)}</span></div>
+      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${r.supero22Dias?'badge-ok':'badge-warn'}">${r.supero22Dias ? `EXCEDIÓ 22D (${r.diasHabiles} días hábiles transcurridos)` : (r.diasHabiles !== null ? `EN PLAZO (${r.diasHabiles}/22 días)` : 'Sin fecha')}</span></div>
       <div><b>Fecha Entrega IBK:</b> ${esc(r.fechaEntrega)}</div>
       <div><b>Trimestre (Q):</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.q)}</span></div>
       <div><b>Grupo de Prioridad:</b> ${esc(r.grupoPrioridad)}</div>
@@ -1754,9 +1818,8 @@ function initEvents() {
     if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
   };
 
-  $$('.navbtn').forEach(btn => {
-    btn.onclick = () => {
-      $$('.navbtn').forEach(b => b.classList.remove('on'));
+  $$('.navbtn').forEach(btn => {     btn.onclick = () => {$$
+('.navbtn').forEach(b => b.classList.remove('on'));
       btn.classList.add('on');
       state.tab = btn.dataset.tab;
       render();
@@ -1773,6 +1836,8 @@ function initEvents() {
       'Servidor Destino': r.hostDestino,
       'Condición Integral': r.condicionCruzada,
       'Estado Entrega': r.estadoEntrega,
+      'SLA Superó 22d': r.supero22Dias ? 'SI (ACEPTADO)' : 'NO',
+      'Días Hábiles Transcurridos': r.diasHabiles !== null ? r.diasHabiles : '',
       'Fecha Entrega IBK': r.fechaEntrega,
       'Siglas': r.siglas,
       'Ambiente': r.ambiente,
