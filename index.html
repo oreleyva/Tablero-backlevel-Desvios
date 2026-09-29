@@ -103,16 +103,17 @@ select, input[type=text] {
 }
 select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px; }
 
+/* Menú flotante de multiselección */
 .multi-btn {
   font-family: inherit; font-size: 12.5px; color: var(--k-black); background: #fff;
-  border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 140px;
+  border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 145px;
   display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left;
 }
 .multi-btn:hover { border-color: var(--k-red); }
 .multi-dropdown {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 100; background: #fff;
   border: 1px solid var(--k-line); border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-  padding: 8px 10px; min-width: 175px; max-height: 240px; overflow-y: auto;
+  padding: 8px 10px; min-width: 195px; max-height: 250px; overflow-y: auto;
 }
 .multi-opt {
   display: flex; align-items: center; gap: 7px; font-size: 12px; padding: 4px 6px;
@@ -304,14 +305,17 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       </div>
       <div class="filters-bar" id="filtersBar">
         <div class="sl"><label>Trimestre (Q - IBK)</label><select id="fQ"></select></div>
-        <div class="sl"><label>Grupo de Prioridad</label>
-          <select id="fGrupo">
-            <option value="__ALL__">Todos los 3 Grupos</option>
-            <option value="Grupo 01">Grupo 01 (30 Tickets)</option>
-            <option value="Grupo 02">Grupo 02 (37 Tickets)</option>
-            <option value="Grupo 03">Grupo 03 (59 Tickets)</option>
-          </select>
+
+        <!-- Filtro Multiselección de Grupos de Prioridad -->
+        <div class="sl">
+          <label>Grupo Prioridad (Múltiple)</label>
+          <button type="button" class="multi-btn" id="btnGruposToggle">
+            <span id="txtGruposLabel" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:135px;">Todos los Grupos</span>
+            <span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span>
+          </button>
+          <div class="multi-dropdown hide" id="dropdownGrupos"></div>
         </div>
+
         <div class="sl"><label>Ámbito Estatus</label>
           <select id="fAmbito">
             <option value="SOLO_MIGRADOS" selected>Solo Migrados (Enfoque de Entrega)</option>
@@ -331,6 +335,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
         <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
         <div class="sl"><label>Estado Entrega</label><select id="fEntrega"></select></div>
         
+        <!-- Filtro Multiselección de Ambientes -->
         <div class="sl">
           <label>Ambiente (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnAmbientesToggle">
@@ -441,12 +446,12 @@ const state = {
   charts: {},
   filters: {
     q: '__ALL__',
-    grupo: '__ALL__',
+    grupos: new Set(),     // Conjunto para multiselección de Grupos de Prioridad
     ambito: 'SOLO_MIGRADOS',
     condicion: '__ALL__',
     nci: '__ALL__',
     entrega: '__ALL__',
-    ambientes: new Set()
+    ambientes: new Set()   // Conjunto para multiselección de Ambientes
   }
 };
 
@@ -552,16 +557,15 @@ function normalizeData(rows) {
     const hostDestinoKey = norm(hostDestino);
     const soDestino = getVal('Sistema Operativo_Destino', 'SO Destino');
 
-    // EVALUACIÓN DE ETIQUETA CATEGORÍA
     const etiqCat = getVal('Etiqueta (Categoria)', 'Etiqueta (Categoria) ');
     const estadoSubCat = getVal('Estado (Sub_Categoria)');
     const normCat = norm(etiqCat);
     const normSub = norm(estadoSubCat);
 
-    // REGLA ESTRICTA DE OBJECIÓN: Si dice "no aceptado", la entrega NO es válida bajo ningún criterio
+    // REGLA ESTRICTA DE OBJECIÓN: Si dice "no aceptado", la entrega NO es válida
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
 
-    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS (LUN A VIE SIN FERIADOS DE PERÚ)
+    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS
     const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
     const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
     const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
@@ -570,7 +574,6 @@ function normalizeData(rows) {
     let estadoEntrega = 'Otros / Por Definir';
 
     if (esRechazadoNoAceptado) {
-      // Prioridad máxima: objeción explícita
       estadoEntrega = 'No Aceptado / Observado';
     } else if (supero22Dias || (normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado'))) {
       estadoEntrega = 'Entregado / Aceptado';
@@ -715,9 +718,17 @@ function applyFilters() {
   if (state.filters.q !== '__ALL__') {
     pool = pool.filter(r => r.q === state.filters.q);
   }
-  if (state.filters.grupo !== '__ALL__') {
-    pool = pool.filter(r => r.grupoPrioridad.includes(state.filters.grupo));
+  
+  // MULTISELECCIÓN DE GRUPOS DE PRIORIDAD
+  if (state.filters.grupos && state.filters.grupos.size > 0) {
+    pool = pool.filter(r => {
+      for (const g of state.filters.grupos) {
+        if (r.grupoPrioridad.includes(g)) return true;
+      }
+      return false;
+    });
   }
+
   if (state.filters.condicion !== '__ALL__') {
     pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
   }
@@ -727,6 +738,8 @@ function applyFilters() {
   if (state.filters.entrega !== '__ALL__') {
     pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
   }
+  
+  // MULTISELECCIÓN DE AMBIENTES
   if (state.filters.ambientes && state.filters.ambientes.size > 0) {
     pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   }
@@ -749,11 +762,84 @@ function initFilters() {
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
+  // 1. INICIALIZACIÓN MULTISELECCIÓN DE GRUPOS DE PRIORIDAD
+  const allGrupos = [
+    { key: "Grupo 01", label: "Grupo 01 (30 Tickets)" },
+    { key: "Grupo 02", label: "Grupo 02 (37 Tickets)" },
+    { key: "Grupo 03", label: "Grupo 03 (59 Tickets)" }
+  ];
+  state.filters.grupos = new Set(allGrupos.map(g => g.key));
+
+  const ddGrupos = $('#dropdownGrupos');
+  ddGrupos.innerHTML = `
+    <label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;">
+      <input type="checkbox" id="chkGrupoAll" checked> Seleccionar Todos
+    </label>
+    <div class="multi-divider"></div>
+    ${allGrupos.map(g => `
+      <label class="multi-opt">
+        <input type="checkbox" class="chk-grupo" value="${esc(g.key)}" checked> ${esc(g.label)}
+      </label>
+    `).join('')}
+  `;
+
+  const updateGruposLabel = () => {
+    const total = allGrupos.length;
+    const selected = state.filters.grupos.size;
+    const lbl = $('#txtGruposLabel');
+    if (selected === total) {
+      lbl.textContent = `Todos (${total})`;
+    } else if (selected === 0) {
+      lbl.textContent = `Ninguno (0)`;
+    } else if (selected <= 2) {
+      lbl.textContent = Array.from(state.filters.grupos).join(', ');
+    } else {
+      lbl.textContent = `${selected} seleccionados`;
+    }
+  };
+
+  updateGruposLabel();
+
+  const chkGrupoAll = $('#chkGrupoAll');
+  const chkGrupos = $$('.chk-grupo');
+
+  chkGrupoAll.onchange = e => {
+    const checked = e.target.checked;
+    chkGrupos.forEach(c => { c.checked = checked; });
+    if (checked) {
+      state.filters.grupos = new Set(allGrupos.map(g => g.key));
+    } else {
+      state.filters.grupos.clear();
+    }
+    updateGruposLabel();
+    applyFilters();
+  };
+
+  chkGrupos.forEach(c => {
+    c.onchange = () => {
+      if (c.checked) {
+        state.filters.grupos.add(c.value);
+      } else {
+        state.filters.grupos.delete(c.value);
+      }
+      chkGrupoAll.checked = (state.filters.grupos.size === allGrupos.length);
+      updateGruposLabel();
+      applyFilters();
+    };
+  });
+
+  $('#btnGruposToggle').onclick = e => {
+    e.stopPropagation();
+    ddGrupos.classList.toggle('hide');
+    $('#dropdownAmbientes').classList.add('hide');
+  };
+
+  // 2. INICIALIZACIÓN MULTISELECCIÓN DE AMBIENTES
   const allAmbs = uniq(state.raw.map(r => r.ambiente)).filter(Boolean).sort();
   state.filters.ambientes = new Set(allAmbs);
 
-  const dd = $('#dropdownAmbientes');
-  dd.innerHTML = `
+  const ddAmbientes = $('#dropdownAmbientes');
+  ddAmbientes.innerHTML = `
     <label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;">
       <input type="checkbox" id="chkAmbienteAll" checked> Seleccionar Todos
     </label>
@@ -782,12 +868,12 @@ function initFilters() {
 
   updateAmbientesLabel();
 
-  const chkAll = $('#chkAmbienteAll');
-  const chkItems = $$('.chk-amb');
+  const chkAmbAll = $('#chkAmbienteAll');
+  const chkAmbs = $$('.chk-amb');
 
-  chkAll.onchange = e => {
+  chkAmbAll.onchange = e => {
     const checked = e.target.checked;
-    chkItems.forEach(c => { c.checked = checked; });
+    chkAmbs.forEach(c => { c.checked = checked; });
     if (checked) {
       state.filters.ambientes = new Set(allAmbs);
     } else {
@@ -797,14 +883,14 @@ function initFilters() {
     applyFilters();
   };
 
-  chkItems.forEach(c => {
+  chkAmbs.forEach(c => {
     c.onchange = () => {
       if (c.checked) {
         state.filters.ambientes.add(c.value);
       } else {
         state.filters.ambientes.delete(c.value);
       }
-      chkAll.checked = (state.filters.ambientes.size === allAmbs.length);
+      chkAmbAll.checked = (state.filters.ambientes.size === allAmbs.length);
       updateAmbientesLabel();
       applyFilters();
     };
@@ -812,29 +898,42 @@ function initFilters() {
 
   $('#btnAmbientesToggle').onclick = e => {
     e.stopPropagation();
-    dd.classList.toggle('hide');
+    ddAmbientes.classList.toggle('hide');
+    $('#dropdownGrupos').classList.add('hide');
   };
 
   document.addEventListener('click', e => {
+    if (!e.target.closest('#btnGruposToggle') && !e.target.closest('#dropdownGrupos')) {
+      ddGrupos.classList.add('hide');
+    }
     if (!e.target.closest('#btnAmbientesToggle') && !e.target.closest('#dropdownAmbientes')) {
-      dd.classList.add('hide');
+      ddAmbientes.classList.add('hide');
     }
   });
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
-  $('#fGrupo').onchange = e => { state.filters.grupo = e.target.value; applyFilters(); };
   $('#fAmbito').onchange = e => { state.filters.ambito = e.target.value; applyFilters(); };
   $('#fCondicion').onchange = e => { state.filters.condicion = e.target.value; applyFilters(); };
   $('#fNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
   $('#fEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
 
   $('#btnReset').onclick = () => {
-    state.filters = { q: '__ALL__', grupo: '__ALL__', ambito: 'SOLO_MIGRADOS', condicion: '__ALL__', nci: '__ALL__', entrega: '__ALL__', ambientes: new Set(allAmbs) };
-    $('#fGrupo').value = '__ALL__';
+    state.filters = {
+      q: '__ALL__',
+      grupos: new Set(allGrupos.map(g => g.key)),
+      ambito: 'SOLO_MIGRADOS',
+      condicion: '__ALL__',
+      nci: '__ALL__',
+      entrega: '__ALL__',
+      ambientes: new Set(allAmbs)
+    };
     $('#fAmbito').value = 'SOLO_MIGRADOS';
     $('#fCondicion').value = '__ALL__';
-    chkAll.checked = true;
-    chkItems.forEach(c => { c.checked = true; });
+    chkGrupoAll.checked = true;
+    chkGrupos.forEach(c => { c.checked = true; });
+    chkAmbAll.checked = true;
+    chkAmbs.forEach(c => { c.checked = true; });
+    updateGruposLabel();
     updateAmbientesLabel();
     initFilters();
     applyFilters();
@@ -902,7 +1001,6 @@ function renderKPIs() {
   const pendGAServ = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
   const dobleBrechaServ = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
   const compliantServers = dedup.filter(r => r.isServerCompliant).length;
-  // Solo cuentan como superados si NO tienen objeción explícita
   const servidoresSupero22 = dedup.filter(r => r.supero22Dias && !r.esRechazadoNoAceptado).length;
   const servidoresNoAceptados = dedup.filter(r => r.esRechazadoNoAceptado).length;
 
@@ -927,7 +1025,7 @@ function renderKPIs() {
       <div class="val">${fmt(servidoresSupero22)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero22, totServers)})</small></div>
       <div class="sub">Sin objeción y >22 días útiles</div>
     </div>
-    <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+    <div class="kpi-card alert">
       <div class="lbl">🚨 Entrega No Aceptada</div>
       <div class="val">${fmt(servidoresNoAceptados)} <small style="font-size:14px;font-weight:600">(${pct(servidoresNoAceptados, totServers)})</small></div>
       <div class="sub">Marcados "No Aceptado" en Etiqueta</div>
