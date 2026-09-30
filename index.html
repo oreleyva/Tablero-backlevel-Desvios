@@ -103,7 +103,6 @@ select, input[type=text] {
 }
 select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px; }
 
-/* Menú flotante de multiselección */
 .multi-btn {
   font-family: inherit; font-size: 12.5px; color: var(--k-black); background: #fff;
   border: 1px solid var(--k-line); border-radius: 6px; padding: 6px 9px; min-width: 145px;
@@ -282,6 +281,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     </div>
     <div class="navlist">
       <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
+      <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
       <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
       <button class="navbtn" data-tab="grupos">Los 3 Grupos Prioritarios</button>
       <button class="navbtn" data-tab="regularizacion">¿Qué Falta Sanear?</button>
@@ -328,8 +328,8 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
             <option value="AMBOS_OK">⭐ Ambos OK (Saneamiento 100%)</option>
             <option value="PEND_GA">⏳ Subsanado - Pendiente Validación G.A</option>
             <option value="DOBLE_BRECHA">🚨 Doble Brecha (Doble Riesgo)</option>
-            <option value="SOLO_SERV_OK">⚠️ Servidor OK / Ticket Obs.</option>
-            <option value="SOLO_TKT_OK">⚠️ Ticket OK / Servidor No Comp.</option>
+            <option value="SOLO_SERV_OK">⚠️️ Servidor OK / Ticket Obs.</option>
+            <option value="SOLO_TKT_OK">⚠️️ Ticket OK / Servidor No Comp.</option>
           </select>
         </div>
         <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
@@ -446,12 +446,12 @@ const state = {
   charts: {},
   filters: {
     q: '__ALL__',
-    grupos: new Set(),     // Conjunto para multiselección de Grupos de Prioridad
+    grupos: new Set(),
     ambito: 'SOLO_MIGRADOS',
     condicion: '__ALL__',
     nci: '__ALL__',
     entrega: '__ALL__',
-    ambientes: new Set()   // Conjunto para multiselección de Ambientes
+    ambientes: new Set()
   }
 };
 
@@ -562,7 +562,9 @@ function normalizeData(rows) {
     const normCat = norm(etiqCat);
     const normSub = norm(estadoSubCat);
 
-    // REGLA ESTRICTA DE OBJECIÓN: Si dice "no aceptado", la entrega NO es válida
+    // Identificación de estados exactos de servidor para la regla de Ticket Entregable
+    const esServidorEntregadoIBK = normCat.includes('entregad') || normCat.includes('aceptad');
+    const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong');
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
 
     // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS
@@ -575,11 +577,11 @@ function normalizeData(rows) {
 
     if (esRechazadoNoAceptado) {
       estadoEntrega = 'No Aceptado / Observado';
-    } else if (supero22Dias || (normCat.includes('entregado') || normCat.includes('aceptado') || normSub.includes('entregado') || normSub.includes('aceptado'))) {
+    } else if (supero22Dias || esServidorEntregadoIBK) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
-    } else if (normCat.includes('desestimado') || normSub.includes('desestimado') || normSub.includes('decommissiong')) {
+    } else if (esServidorDesestimado) {
       estadoEntrega = 'Desestimado';
     } else if (normCat.includes('reprogramado') || normSub.includes('reprogramado')) {
       estadoEntrega = 'Reprogramado';
@@ -590,7 +592,6 @@ function normalizeData(rows) {
     const queFalta = getVal('Que Falta?');
     const normQFalta = norm(queFalta);
     
-    // Identificación de Pendiente Validación Gestión de Activos
     const esPendienteGA = normAprov.includes('g.a') || 
                           normAprov.includes('gestion activos') || 
                           normAprov.includes('gestión activos') || 
@@ -604,7 +605,7 @@ function normalizeData(rows) {
     const tieneObservacionAprov = !esPendienteGA && (normAprov.includes('observado') || normAprov.includes('desvio') || normAprov.includes('desvío') || normAprov.includes('flujo'));
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
-    // CONTROLES DE COMPLIANCE TÉCNICO (7 REQUISITOS MANDATORIOS O N/A)
+    // CONTROLES DE COMPLIANCE TÉCNICO
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
@@ -682,6 +683,9 @@ function normalizeData(rows) {
       ticketAprov: tktClean,
       grupoPrioridad,
       estadoEntrega,
+      etiqCat,
+      esServidorEntregadoIBK,
+      esServidorDesestimado,
       esRechazadoNoAceptado,
       estadoAprov,
       esPendienteGA,
@@ -719,7 +723,6 @@ function applyFilters() {
     pool = pool.filter(r => r.q === state.filters.q);
   }
   
-  // MULTISELECCIÓN DE GRUPOS DE PRIORIDAD
   if (state.filters.grupos && state.filters.grupos.size > 0) {
     pool = pool.filter(r => {
       for (const g of state.filters.grupos) {
@@ -739,7 +742,6 @@ function applyFilters() {
     pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
   }
   
-  // MULTISELECCIÓN DE AMBIENTES
   if (state.filters.ambientes && state.filters.ambientes.size > 0) {
     pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   }
@@ -762,7 +764,6 @@ function initFilters() {
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
-  // 1. INICIALIZACIÓN MULTISELECCIÓN DE GRUPOS DE PRIORIDAD
   const allGrupos = [
     { key: "Grupo 01", label: "Grupo 01 (30 Tickets)" },
     { key: "Grupo 02", label: "Grupo 02 (37 Tickets)" },
@@ -834,7 +835,6 @@ function initFilters() {
     $('#dropdownAmbientes').classList.add('hide');
   };
 
-  // 2. INICIALIZACIÓN MULTISELECCIÓN DE AMBIENTES
   const allAmbs = uniq(state.raw.map(r => r.ambiente)).filter(Boolean).sort();
   state.filters.ambientes = new Set(allAmbs);
 
@@ -1048,6 +1048,278 @@ function renderKPIs() {
   `;
 }
 
+// -----------------------------------------------------------------------------------
+// NUEVA PESTAÑA: ENTREGABLES POR TICKET DE APROVISIONAMIENTO
+// -----------------------------------------------------------------------------------
+function computeTicketsEntregables(rows) {
+  const map = {};
+
+  rows.forEach(r => {
+    const tkt = r.ticketAprov;
+    if (!tkt) return;
+    if (!map[tkt]) {
+      map[tkt] = {
+        ticket: tkt,
+        grupo: r.grupoPrioridad,
+        q: r.q,
+        servidores: [],
+        total: 0,
+        entregados: 0,
+        desestimados: 0,
+        otros: 0
+      };
+    }
+    map[tkt].servidores.push(r);
+    map[tkt].total++;
+
+    const normCat = norm(r.etiqCat);
+    if (r.esServidorDesestimado) {
+      map[tkt].desestimados++;
+    } else if (r.esServidorEntregadoIBK || r.supero22Dias) {
+      map[tkt].entregados++;
+    } else {
+      map[tkt].otros++;
+    }
+  });
+
+  const list = Object.values(map).map(item => {
+    let estadoTicket = 'No Entregable';
+    let codigo = 'NO_ENTREGABLE';
+
+    // Regla 1: Desestimado -> Todos los servidores del ticket son Desestimados
+    if (item.total > 0 && item.desestimados === item.total) {
+      estadoTicket = 'Desestimado';
+      codigo = 'DESESTIMADO';
+    } 
+    // Regla 2: Entregable -> Todos los servidores están en Entregados IBK (o combinación con desestimados)
+    else if (item.otros === 0 && item.entregados > 0) {
+      estadoTicket = 'Entregable';
+      codigo = 'ENTREGABLE';
+    } 
+    // Regla 3: No Entregable -> Basta que 1 solo servidor esté pendiente o en otro estado no entregado
+    else {
+      estadoTicket = 'No Entregable';
+      codigo = 'NO_ENTREGABLE';
+    }
+
+    return {
+      ...item,
+      estadoTicket,
+      codigo
+    };
+  });
+
+  return list;
+}
+
+function renderEntregables() {
+  const v = state.view;
+  const ticketsData = computeTicketsEntregables(v);
+  const totTickets = ticketsData.length || 1;
+
+  const cantEntregables = ticketsData.filter(t => t.codigo === 'ENTREGABLE').length;
+  const cantNoEntregables = ticketsData.filter(t => t.codigo === 'NO_ENTREGABLE').length;
+  const cantDesestimados = ticketsData.filter(t => t.codigo === 'DESESTIMADO').length;
+
+  const pctEntregable = pct(cantEntregables, totTickets);
+  const pctNoEntregable = pct(cantNoEntregables, totTickets);
+  const pctDesestimado = pct(cantDesestimados, totTickets);
+
+  // Desglose por Trimestre (Q)
+  const qs = uniq(state.raw.map(r => r.q)).sort();
+  const qLabels = [];
+  const qDataEntregables = [];
+  const qDataNoEntregables = [];
+
+  qs.forEach(q => {
+    const subs = ticketsData.filter(t => t.q === q);
+    if (subs.length > 0) {
+      qLabels.push(q);
+      qDataEntregables.push(subs.filter(t => t.codigo === 'ENTREGABLE').length);
+      qDataNoEntregables.push(subs.filter(t => t.codigo === 'NO_ENTREGABLE').length);
+    }
+  });
+
+  $('#tabBody').innerHTML = `
+    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+      <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
+        <div class="lbl">Tickets Entregables</div>
+        <div class="val">${fmt(cantEntregables)} <small style="font-size:14px;font-weight:700">(${pctEntregable})</small></div>
+        <div class="sub">100% Servidores Entregados IBK</div>
+      </div>
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+        <div class="lbl">Tickets No Entregables</div>
+        <div class="val">${fmt(cantNoEntregables)} <small style="font-size:14px;font-weight:700">(${pctNoEntregable})</small></div>
+        <div class="sub">Al menos 1 servidor pendiente o no aceptado</div>
+      </div>
+      <div class="kpi-card" style="border-left:4px solid var(--k-slate);">
+        <div class="lbl">Tickets Desestimados</div>
+        <div class="val">${fmt(cantDesestimados)} <small style="font-size:14px;font-weight:700">(${pctDesestimado})</small></div>
+        <div class="sub">100% Servidores Desestimados</div>
+      </div>
+    </div>
+
+    <div class="row r-2">
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Distribución de Condición de Entrega por Ticket</h3>
+            <div class="sub">Basado en la regla de consolidación de servidores por ticket de aprovisionamiento</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cEntregablesDoughnut"></canvas></div>
+      </div>
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Tickets Entregables vs No Entregables por Q</h3>
+            <div class="sub">Comparativa por ventana de migración</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cEntregablesQ"></canvas></div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="th" style="flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3>Detalle de Tickets de Aprovisionamiento y Condición</h3>
+          <div class="sub">Total de tickets analizados: ${fmt(totTickets)} tickets</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" id="tbSearchTkt" placeholder="Buscar ticket, grupo o servidor..." style="min-width:240px;">
+          <select id="selFiltroTktEstado" style="min-width:170px;">
+            <option value="__ALL__">Todos los Estados</option>
+            <option value="ENTREGABLE">Entregables</option>
+            <option value="NO_ENTREGABLE">No Entregables</option>
+            <option value="DESESTIMADO">Desestimados</option>
+          </select>
+        </div>
+      </div>
+      <div class="tw" style="max-height: 520px;">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Ticket Aprov.</th>
+              <th>Grupo Prioridad</th>
+              <th>Trimestre (Q)</th>
+              <th>Condición del Ticket</th>
+              <th class="num">Total Servidores</th>
+              <th class="num">Entregados IBK</th>
+              <th class="num">Pendientes / Otros</th>
+              <th class="num">Desestimados</th>
+              <th>Servidores Asociados</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyTickets"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Gráfico de Dona
+  state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Entregable', 'No Entregable', 'Desestimado'],
+      datasets: [{
+        data: [cantEntregables, cantNoEntregables, cantDesestimados],
+        backgroundColor: ['#107C41', '#BA1A1A', '#757575']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: c => ` ${c.label}: ${c.raw} tickets (${(c.raw / totTickets * 100).toFixed(1)}%)`
+          }
+        }
+      }
+    }
+  });
+
+  // Gráfico de Barras por Q
+  state.charts.entregablesQ = new Chart($('#cEntregablesQ'), {
+    type: 'bar',
+    data: {
+      labels: qLabels,
+      datasets: [
+        {
+          label: 'Entregables',
+          data: qDataEntregables,
+          backgroundColor: '#107C41',
+          borderRadius: 4
+        },
+        {
+          label: 'No Entregables',
+          data: qDataNoEntregables,
+          backgroundColor: '#BA1A1A',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true }
+      }
+    }
+  });
+
+  // Render de filas de la tabla
+  const paintTktRows = (list) => {
+    $('#tbodyTickets').innerHTML = list.map(item => `
+      <tr>
+        <td class="mono font-weight:700;color:var(--k-red);">${esc(item.ticket)}</td>
+        <td><span class="badge badge-neutral">${esc(item.grupo)}</span></td>
+        <td style="font-weight:600;">${esc(item.q)}</td>
+        <td>
+          <span class="badge ${item.codigo==='ENTREGABLE'?'badge-ok':(item.codigo==='NO_ENTREGABLE'?'badge-alert':'badge-neutral')}" style="font-weight:700;padding:4px 8px;">
+            ${item.codigo==='ENTREGABLE'?'✅ ENTREGABLE':(item.codigo==='NO_ENTREGABLE'?'❌ NO ENTREGABLE':'⚪ DESESTIMADO')}
+          </span>
+        </td>
+        <td class="num font-weight:700;">${item.total}</td>
+        <td class="num" style="color:var(--c-ok);font-weight:600;">${item.entregados}</td>
+        <td class="num" style="color:${item.otros>0?'var(--c-alert)':'inherit'};font-weight:600;">${item.otros}</td>
+        <td class="num" style="color:var(--k-slate);">${item.desestimados}</td>
+        <td style="font-size:11.5px;color:var(--k-slate);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${esc(item.servidores.map(s => s.hostDestino).join(', '))}
+        </td>
+      </tr>
+    `).join('');
+  };
+
+  paintTktRows(ticketsData);
+
+  // Filtros internos de la tabla de tickets
+  const filterTktTable = () => {
+    const qStr = norm($('#tbSearchTkt').value);
+    const selEst = $('#selFiltroTktEstado').value;
+
+    let filtered = ticketsData;
+    if (selEst !== '__ALL__') {
+      filtered = filtered.filter(t => t.codigo === selEst);
+    }
+    if (qStr) {
+      filtered = filtered.filter(t => 
+        norm(t.ticket).includes(qStr) || 
+        norm(t.grupo).includes(qStr) || 
+        norm(t.q).includes(qStr) ||
+        t.servidores.some(s => norm(s.hostDestino).includes(qStr) || norm(s.servidor).includes(qStr))
+      );
+    }
+    paintTktRows(filtered);
+  };
+
+  $('#tbSearchTkt').oninput = filterTktTable;
+  $('#selFiltroTktEstado').onchange = filterTktTable;
+}
+
 function renderCockpit() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
@@ -1208,7 +1480,10 @@ function renderCockpit() {
         const selectedCode = matrizCodigos[clickedIdx];
         
         state.filters.condicion = selectedCode;
-        $('#fCondicion').value = selectedCode;         applyFilters();          $$('.navbtn').forEach(b => b.classList.remove('on'));
+        $('#fCondicion').value = selectedCode;
+        applyFilters();
+
+        $$('.navbtn').forEach(b => b.classList.remove('on'));
         const invBtn = document.querySelector('.navbtn[data-tab="detalle"]');
         if (invBtn) invBtn.classList.add('on');
         state.tab = 'detalle';
@@ -1873,6 +2148,7 @@ function render() {
 
   const views = {
     cockpit: renderCockpit,
+    entregables: renderEntregables,
     qbreakdown: renderQBreakdown,
     grupos: renderGrupos,
     regularizacion: renderRegularizacion,
@@ -1885,6 +2161,7 @@ function render() {
 
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
+    entregables: 'Métricas de Tickets Entregables vs No Entregables',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
     grupos: 'Los 3 Grupos Prioritarios',
     regularizacion: '¿Qué Falta Sanear? · Regularización',
