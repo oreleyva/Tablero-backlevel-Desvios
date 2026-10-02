@@ -89,7 +89,7 @@ body {
 .btn-primary:hover { background: var(--k-red-dark); }
 .btn-ghost { background: #fff; color: var(--k-black); border-color: var(--k-line); }
 .btn-ghost:hover { border-color: var(--k-red); color: var(--k-red); }
-.btn-sm { padding: 5px 10px; font-size: 11.5px; }
+.btn-sm { padding: 4px 8px; font-size: 11.5px; }
 
 .filters-bar {
   display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
@@ -216,6 +216,21 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .badge-info { background: var(--c-blue-bg); color: var(--c-blue); border: 1px solid var(--c-blue); }
 .badge-neutral { background: #EFEFEF; color: #444; border: 1px solid #D5D5D5; }
 
+.chip-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin: 1px 2px;
+}
+.chip-ok { background: #E8F5E9; color: #107C41; border: 1px solid #A5D6A7; }
+.chip-fail { background: #FFEBEE; color: #BA1A1A; border: 1px solid #FFCDD2; }
+.chip-na { background: #F5F5F5; color: #616161; border: 1px solid #E0E0E0; }
+
 .gate {
   position: fixed; inset: 0; background: rgba(18,18,18,0.85); backdrop-filter: blur(6px);
   z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px;
@@ -240,7 +255,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .modal {
-  background: #fff; border-radius: 10px; width: min(1050px, 95vw); max-height: 85vh;
+  background: #fff; border-radius: 10px; width: min(1180px, 95vw); max-height: 85vh;
   display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
 }
 .modal-header {
@@ -306,7 +321,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       <div class="filters-bar" id="filtersBar">
         <div class="sl"><label>Trimestre (Q - IBK)</label><select id="fQ"></select></div>
 
-        <!-- Filtro Multiselección de Grupos de Prioridad -->
         <div class="sl">
           <label>Grupo Prioridad (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnGruposToggle">
@@ -328,14 +342,13 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
             <option value="AMBOS_OK">⭐ Ambos OK (Saneamiento 100%)</option>
             <option value="PEND_GA">⏳ Subsanado - Pendiente Validación G.A</option>
             <option value="DOBLE_BRECHA">🚨 Doble Brecha (Doble Riesgo)</option>
-            <option value="SOLO_SERV_OK">⚠️️ Servidor OK / Ticket Obs.</option>
-            <option value="SOLO_TKT_OK">⚠️️ Ticket OK / Servidor No Comp.</option>
+            <option value="SOLO_SERV_OK">⚠️ Servidor OK / Ticket Obs.</option>
+            <option value="SOLO_TKT_OK">⚠️ Ticket OK / Servidor No Comp.</option>
           </select>
         </div>
         <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
         <div class="sl"><label>Estado Entrega</label><select id="fEntrega"></select></div>
         
-        <!-- Filtro Multiselección de Ambientes -->
         <div class="sl">
           <label>Ambiente (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnAmbientesToggle">
@@ -381,15 +394,12 @@ const NCI_LABELS = {
 };
 
 const FERIADOS_PERU = new Set([
-  // 2025
   "2025-01-01", "2025-04-17", "2025-04-18", "2025-05-01", "2025-06-07",
   "2025-06-29", "2025-07-23", "2025-07-28", "2025-07-29", "2025-08-06",
   "2025-08-30", "2025-10-08", "2025-11-01", "2025-12-08", "2025-12-09", "2025-12-25",
-  // 2026
   "2026-01-01", "2026-04-02", "2026-04-03", "2026-05-01", "2026-06-07",
   "2026-06-29", "2026-07-23", "2026-07-28", "2026-07-29", "2026-08-06",
   "2026-08-30", "2026-10-08", "2026-11-01", "2026-12-08", "2026-12-09", "2026-12-25",
-  // 2027
   "2027-01-01", "2027-03-25", "2027-03-26", "2027-05-01", "2027-06-07",
   "2027-06-29", "2027-07-23", "2027-07-28", "2027-07-29", "2027-08-06",
   "2027-08-30", "2027-10-08", "2027-11-01", "2027-12-08", "2027-12-09", "2027-12-25"
@@ -416,13 +426,10 @@ function calcularDiasHabiles(fechaInicio, fechaFin = new Date()) {
   if (!fechaInicio) return null;
   const inicio = new Date(fechaInicio.getFullYear(), fechaInicio.getMonth(), fechaInicio.getDate());
   const fin = new Date(fechaFin.getFullYear(), fechaFin.getMonth(), fechaFin.getDate());
-  
   if (inicio >= fin) return 0;
-
   let diasHabiles = 0;
   let cur = new Date(inicio);
   cur.setDate(cur.getDate() + 1);
-
   while (cur <= fin) {
     const dayOfWeek = cur.getDay();
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
@@ -483,6 +490,17 @@ function renderCellControl(val, isOk) {
   return isOk ? '✅' : '<span style="color:var(--c-alert);font-weight:700;">❌</span>';
 }
 
+function renderControlChip(nombre, rawVal, isOk, extraInfo = '', esDesestimado = false) {
+  if (esDesestimado || isNA(rawVal)) {
+    return `<span class="chip-ctl chip-na" title="${esc(nombre)}: No Aplica (Servidor Desestimado / N/A)">⚪ ${esc(nombre)}: N/A</span>`;
+  }
+  if (isOk) {
+    const labelExtra = extraInfo ? ` (${esc(extraInfo)})` : '';
+    return `<span class="chip-ctl chip-ok" title="${esc(nombre)}: Conforme${labelExtra}">✅ ${esc(nombre)}: OK${labelExtra}</span>`;
+  }
+  return `<span class="chip-ctl chip-fail" title="${esc(nombre)}: Pendiente / Con Brecha">❌ ${esc(nombre)}: PEND</span>`;
+}
+
 function fmtFecha(v) {
   const d = parseToDateObj(v);
   if (!d) return '—';
@@ -530,10 +548,12 @@ function normalizeData(rows) {
 
     const q = getVal('Q - IBK', 'Q-IBK', 'Q') || 'Sin Q';
     const tktRaw = getVal('Ticket de Aprovisionamiento');
-    const tktClean = tktRaw.replace(/\.0$/, '').trim();
+    const tktClean = tktRaw.replace(/\.0$/, '').replace(/_/g, '').trim();
+
+    // Desglose de tickets individuales (manejo de '3642261 / 4052177')
+    const tktParts = tktClean.split('/').map(p => p.trim()).filter(Boolean);
 
     const gMatches = [];
-    const tktParts = tktClean.split('/').map(p => p.trim());
     if (tktParts.some(p => normG1.has(p))) gMatches.push('Grupo 01');
     if (tktParts.some(p => normG2.has(p))) gMatches.push('Grupo 02');
     if (tktParts.some(p => normG3.has(p))) gMatches.push('Grupo 03');
@@ -562,27 +582,24 @@ function normalizeData(rows) {
     const normCat = norm(etiqCat);
     const normSub = norm(estadoSubCat);
 
-    // Identificación de estados exactos de servidor para la regla de Ticket Entregable
     const esServidorEntregadoIBK = normCat.includes('entregad') || normCat.includes('aceptad');
-    const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong');
+    const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong') || forecastEstado === 'Desestimado';
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
 
-    // CÁLCULO DE DÍAS HÁBILES Y SLA 22 DÍAS
     const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
     const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
     const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
     const supero22Dias = (diasHabiles !== null && diasHabiles > 22);
 
     let estadoEntrega = 'Otros / Por Definir';
-
-    if (esRechazadoNoAceptado) {
+    if (esServidorDesestimado) {
+      estadoEntrega = 'Desestimado';
+    } else if (esRechazadoNoAceptado) {
       estadoEntrega = 'No Aceptado / Observado';
     } else if (supero22Dias || esServidorEntregadoIBK) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
-    } else if (esServidorDesestimado) {
-      estadoEntrega = 'Desestimado';
     } else if (normCat.includes('reprogramado') || normSub.includes('reprogramado')) {
       estadoEntrega = 'Reprogramado';
     }
@@ -602,10 +619,14 @@ function normalizeData(rows) {
                           normQFalta.includes('gestión activos') ||
                           (normAprov.includes('subsanado') && normAprov.includes('val'));
 
-    const tieneObservacionAprov = !esPendienteGA && (normAprov.includes('observado') || normAprov.includes('desvio') || normAprov.includes('desvío') || normAprov.includes('flujo'));
+    const tieneObservacionAprov = !esPendienteGA && (
+      normAprov.includes('desvio') || 
+      normAprov.includes('desvío') || 
+      normAprov.includes('observado') || 
+      normAprov.includes('flujo')
+    );
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
-    // CONTROLES DE COMPLIANCE TÉCNICO
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
@@ -615,7 +636,7 @@ function normalizeData(rows) {
     const remSo = getVal('Remediado S.O', 'Remediado SO', 'Hardening S.O', 'Hardening');
     const okRemSo = isControlOK(remSo);
 
-    const parchado = getVal('Parchado', 'Parchado S.O', 'Parchado SO', 'Parcheado', 'Patched');
+    const parchado = getVal('Parchado ', 'Parchado', 'Parchado S.O', 'Parchado SO', 'Parcheado', 'Patched');
     const okParchado = isControlOK(parchado);
 
     const remSub = getVal('Remediado Sub Sistema', 'Remediado Subsistema', 'Hardening Subsistema');
@@ -628,7 +649,18 @@ function normalizeData(rows) {
     const mon = getVal('Monitoreo(UIM, OEM, GSMA)');
     const okMon = isControlOK(mon);
 
-    const isServerCompliant = okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon;
+    const isServerCompliant = esServidorDesestimado || (okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon);
+
+    const controlesFaltantes = [];
+    if (!esServidorDesestimado) {
+      if (!okQualys) controlesFaltantes.push('Qualys');
+      if (!okAv) controlesFaltantes.push('Antivirus');
+      if (!okRemSo) controlesFaltantes.push('Hardening S.O');
+      if (!okParchado) controlesFaltantes.push('Parchado');
+      if (!okRemSub) controlesFaltantes.push('Subsistema');
+      if (!okBkp) controlesFaltantes.push('Backup');
+      if (!okMon) controlesFaltantes.push('Monitoreo');
+    }
 
     let condicionCruzada = 'Desconocido';
     let condicionCodigo = 'OTRO';
@@ -664,7 +696,6 @@ function normalizeData(rows) {
       nciFormateado = '10563632 - Backlevel';
     }
     const tieneNci = nciFormateado !== '' && !['no asignado','no requiere','desestimado','-'].includes(norm(nciFormateado));
-
     const catReg = getVal('Categoria de Regularizacion', 'Categoria de Regularizacion ') || 'Sin regularizar';
 
     return {
@@ -681,6 +712,7 @@ function normalizeData(rows) {
       forecastEstado,
       esMigrado,
       ticketAprov: tktClean,
+      tktParts, // Lista de tickets individuales
       grupoPrioridad,
       estadoEntrega,
       etiqCat,
@@ -699,6 +731,7 @@ function normalizeData(rows) {
       okBkp, bkp, ticketBkp,
       okMon, mon,
       isServerCompliant,
+      controlesFaltantes,
       condicionCruzada,
       condicionCodigo,
       nci: nciFormateado,
@@ -715,14 +748,12 @@ function normalizeData(rows) {
 
 function applyFilters() {
   let pool = state.raw;
-
   if (state.filters.ambito === 'SOLO_MIGRADOS') {
     pool = pool.filter(r => r.esMigrado);
   }
   if (state.filters.q !== '__ALL__') {
     pool = pool.filter(r => r.q === state.filters.q);
   }
-  
   if (state.filters.grupos && state.filters.grupos.size > 0) {
     pool = pool.filter(r => {
       for (const g of state.filters.grupos) {
@@ -731,7 +762,6 @@ function applyFilters() {
       return false;
     });
   }
-
   if (state.filters.condicion !== '__ALL__') {
     pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
   }
@@ -741,18 +771,15 @@ function applyFilters() {
   if (state.filters.entrega !== '__ALL__') {
     pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
   }
-  
   if (state.filters.ambientes && state.filters.ambientes.size > 0) {
     pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   }
-
   state.view = pool;
   render();
 }
 
 function initFilters() {
   const base = state.raw.filter(r => r.esMigrado);
-  
   const fillSelect = (id, vals, cur) => {
     const sel = $(id);
     sel.innerHTML = `<option value="__ALL__">Todos (${vals.length})</option>` +
@@ -788,17 +815,11 @@ function initFilters() {
     const total = allGrupos.length;
     const selected = state.filters.grupos.size;
     const lbl = $('#txtGruposLabel');
-    if (selected === total) {
-      lbl.textContent = `Todos (${total})`;
-    } else if (selected === 0) {
-      lbl.textContent = `Ninguno (0)`;
-    } else if (selected <= 2) {
-      lbl.textContent = Array.from(state.filters.grupos).join(', ');
-    } else {
-      lbl.textContent = `${selected} seleccionados`;
-    }
+    if (selected === total) lbl.textContent = `Todos (${total})`;
+    else if (selected === 0) lbl.textContent = `Ninguno (0)`;
+    else if (selected <= 2) lbl.textContent = Array.from(state.filters.grupos).join(', ');
+    else lbl.textContent = `${selected} seleccionados`;
   };
-
   updateGruposLabel();
 
   const chkGrupoAll = $('#chkGrupoAll');
@@ -807,22 +828,16 @@ function initFilters() {
   chkGrupoAll.onchange = e => {
     const checked = e.target.checked;
     chkGrupos.forEach(c => { c.checked = checked; });
-    if (checked) {
-      state.filters.grupos = new Set(allGrupos.map(g => g.key));
-    } else {
-      state.filters.grupos.clear();
-    }
+    if (checked) state.filters.grupos = new Set(allGrupos.map(g => g.key));
+    else state.filters.grupos.clear();
     updateGruposLabel();
     applyFilters();
   };
 
   chkGrupos.forEach(c => {
     c.onchange = () => {
-      if (c.checked) {
-        state.filters.grupos.add(c.value);
-      } else {
-        state.filters.grupos.delete(c.value);
-      }
+      if (c.checked) state.filters.grupos.add(c.value);
+      else state.filters.grupos.delete(c.value);
       chkGrupoAll.checked = (state.filters.grupos.size === allGrupos.length);
       updateGruposLabel();
       applyFilters();
@@ -855,17 +870,11 @@ function initFilters() {
     const total = allAmbs.length;
     const selected = state.filters.ambientes.size;
     const lbl = $('#txtAmbientesLabel');
-    if (selected === total) {
-      lbl.textContent = `Todos (${total})`;
-    } else if (selected === 0) {
-      lbl.textContent = `Ninguno (0)`;
-    } else if (selected <= 2) {
-      lbl.textContent = Array.from(state.filters.ambientes).join(', ');
-    } else {
-      lbl.textContent = `${selected} seleccionados`;
-    }
+    if (selected === total) lbl.textContent = `Todos (${total})`;
+    else if (selected === 0) lbl.textContent = `Ninguno (0)`;
+    else if (selected <= 2) lbl.textContent = Array.from(state.filters.ambientes).join(', ');
+    else lbl.textContent = `${selected} seleccionados`;
   };
-
   updateAmbientesLabel();
 
   const chkAmbAll = $('#chkAmbienteAll');
@@ -874,22 +883,16 @@ function initFilters() {
   chkAmbAll.onchange = e => {
     const checked = e.target.checked;
     chkAmbs.forEach(c => { c.checked = checked; });
-    if (checked) {
-      state.filters.ambientes = new Set(allAmbs);
-    } else {
-      state.filters.ambientes.clear();
-    }
+    if (checked) state.filters.ambientes = new Set(allAmbs);
+    else state.filters.ambientes.clear();
     updateAmbientesLabel();
     applyFilters();
   };
 
   chkAmbs.forEach(c => {
     c.onchange = () => {
-      if (c.checked) {
-        state.filters.ambientes.add(c.value);
-      } else {
-        state.filters.ambientes.delete(c.value);
-      }
+      if (c.checked) state.filters.ambientes.add(c.value);
+      else state.filters.ambientes.delete(c.value);
       chkAmbAll.checked = (state.filters.ambientes.size === allAmbs.length);
       updateAmbientesLabel();
       applyFilters();
@@ -940,29 +943,79 @@ function initFilters() {
   };
 }
 
+// CÓMPUTO DE TICKETS INDIVIDUALES: CADA TICKET CUENTA POR SEPARADO (TOTAL: 126 TICKETS)
+function computeTicketsMap(rows) {
+  const tktMap = {};
+  rows.forEach(r => {
+    // Si la celda contiene '3642261 / 4052177', se evalúa para 3642261 y para 4052177 por separado
+    const lista = (r.tktParts && r.tktParts.length) ? r.tktParts : [r.ticketAprov];
+    lista.forEach(t => {
+      if (!t) return;
+      if (!tktMap[t]) {
+        tktMap[t] = {
+          ticket: t,
+          grupo: r.grupoPrioridad,
+          q: r.q,
+          servidores: [],
+          total: 0,
+          entregados: 0,
+          desestimados: 0,
+          pendientesEntrega: 0,
+          conBrechaTecnica: 0,
+          tieneObsTicket: false,
+          esPendienteGA: false,
+          estadosObsTexto: new Set(),
+          queFaltaTextos: new Set()
+        };
+      }
+      tktMap[t].servidores.push(r);
+      tktMap[t].total++;
+
+      if (r.esServidorDesestimado) {
+        tktMap[t].desestimados++;
+      } else if ((r.esServidorEntregadoIBK || r.supero22Dias) && !r.esRechazadoNoAceptado) {
+        tktMap[t].entregados++;
+      } else {
+        tktMap[t].pendientesEntrega++;
+      }
+
+      if (!r.isServerCompliant && !r.esServidorDesestimado) {
+        tktMap[t].conBrechaTecnica++;
+      }
+
+      if (r.tieneObservacionAprov) {
+        tktMap[t].tieneObsTicket = true;
+        if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+      }
+      if (r.esPendienteGA) {
+        tktMap[t].esPendienteGA = true;
+        if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+      }
+      if (r.queFalta) {
+        tktMap[t].queFaltaTextos.add(r.queFalta);
+      }
+    });
+  });
+  return tktMap;
+}
+
 function renderKPIs() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
   const totServers = dedup.length;
   const totRows = v.length;
 
-  const tktMap = {};
-  v.forEach(r => {
-    const t = r.ticketAprov;
-    if (!t) return;
-    if (!tktMap[t]) {
-      tktMap[t] = { hasObs: false, isGA: false, allServersCompliant: true };
-    }
-    if (r.esPendienteGA) tktMap[t].isGA = true;
-    if (r.tieneObservacionAprov) tktMap[t].hasObs = true;
-    if (!r.isServerCompliant) tktMap[t].allServersCompliant = false;
-  });
-
+  const tktMap = computeTicketsMap(v);
   const allTktsList = Object.keys(tktMap);
   const totTkts = allTktsList.length;
 
-  const tktsAmbosOk = allTktsList.filter(t => !tktMap[t].hasObs && !tktMap[t].isGA && tktMap[t].allServersCompliant).length;
-  const tktsPendGA = allTktsList.filter(t => tktMap[t].isGA).length;
+  // Un ticket está Todo OK si el ticket no tiene desvío/obs, no está en GA y el 100% de sus servidores no desestimados están entregados y con compliance
+  const tktsAmbosOk = allTktsList.filter(t => {
+    const item = tktMap[t];
+    return !item.tieneObsTicket && !item.esPendienteGA && item.pendientesEntrega === 0 && item.conBrechaTecnica === 0 && item.entregados > 0;
+  }).length;
+
+  const tktsPendGA = allTktsList.filter(t => tktMap[t].esPendienteGA).length;
   const tktsPendientes = totTkts - tktsAmbosOk - tktsPendGA;
 
   const pctOk = pct(tktsAmbosOk, totTkts);
@@ -1048,276 +1101,38 @@ function renderKPIs() {
   `;
 }
 
-// -----------------------------------------------------------------------------------
-// NUEVA PESTAÑA: ENTREGABLES POR TICKET DE APROVISIONAMIENTO
-// -----------------------------------------------------------------------------------
 function computeTicketsEntregables(rows) {
-  const map = {};
-
-  rows.forEach(r => {
-    const tkt = r.ticketAprov;
-    if (!tkt) return;
-    if (!map[tkt]) {
-      map[tkt] = {
-        ticket: tkt,
-        grupo: r.grupoPrioridad,
-        q: r.q,
-        servidores: [],
-        total: 0,
-        entregados: 0,
-        desestimados: 0,
-        otros: 0
-      };
-    }
-    map[tkt].servidores.push(r);
-    map[tkt].total++;
-
-    const normCat = norm(r.etiqCat);
-    if (r.esServidorDesestimado) {
-      map[tkt].desestimados++;
-    } else if (r.esServidorEntregadoIBK || r.supero22Dias) {
-      map[tkt].entregados++;
-    } else {
-      map[tkt].otros++;
-    }
-  });
-
-  const list = Object.values(map).map(item => {
+  const tktMap = computeTicketsMap(rows);
+  return Object.values(tktMap).map(item => {
     let estadoTicket = 'No Entregable';
     let codigo = 'NO_ENTREGABLE';
+    let motivosRechazo = [];
 
-    // Regla 1: Desestimado -> Todos los servidores del ticket son Desestimados
     if (item.total > 0 && item.desestimados === item.total) {
       estadoTicket = 'Desestimado';
       codigo = 'DESESTIMADO';
-    } 
-    // Regla 2: Entregable -> Todos los servidores están en Entregados IBK (o combinación con desestimados)
-    else if (item.otros === 0 && item.entregados > 0) {
-      estadoTicket = 'Entregable';
-      codigo = 'ENTREGABLE';
-    } 
-    // Regla 3: No Entregable -> Basta que 1 solo servidor esté pendiente o en otro estado no entregado
-    else {
-      estadoTicket = 'No Entregable';
-      codigo = 'NO_ENTREGABLE';
+    } else {
+      if (item.tieneObsTicket) motivosRechazo.push('Ticket con Desvío/Observación');
+      if (item.esPendienteGA) motivosRechazo.push('Ticket en Validación G.A');
+      if (item.pendientesEntrega > 0) motivosRechazo.push(`${item.pendientesEntrega} serv. no entregado(s)`);
+      if (item.conBrechaTecnica > 0) motivosRechazo.push(`${item.conBrechaTecnica} serv. sin compliance`);
+
+      if (motivosRechazo.length === 0 && item.entregados > 0) {
+        estadoTicket = 'Entregable';
+        codigo = 'ENTREGABLE';
+      } else {
+        estadoTicket = 'No Entregable';
+        codigo = 'NO_ENTREGABLE';
+      }
     }
 
     return {
       ...item,
       estadoTicket,
-      codigo
+      codigo,
+      motivosStr: motivosRechazo.length > 0 ? motivosRechazo.join(' | ') : 'Cumple 100% requisitos'
     };
   });
-
-  return list;
-}
-
-function renderEntregables() {
-  const v = state.view;
-  const ticketsData = computeTicketsEntregables(v);
-  const totTickets = ticketsData.length || 1;
-
-  const cantEntregables = ticketsData.filter(t => t.codigo === 'ENTREGABLE').length;
-  const cantNoEntregables = ticketsData.filter(t => t.codigo === 'NO_ENTREGABLE').length;
-  const cantDesestimados = ticketsData.filter(t => t.codigo === 'DESESTIMADO').length;
-
-  const pctEntregable = pct(cantEntregables, totTickets);
-  const pctNoEntregable = pct(cantNoEntregables, totTickets);
-  const pctDesestimado = pct(cantDesestimados, totTickets);
-
-  // Desglose por Trimestre (Q)
-  const qs = uniq(state.raw.map(r => r.q)).sort();
-  const qLabels = [];
-  const qDataEntregables = [];
-  const qDataNoEntregables = [];
-
-  qs.forEach(q => {
-    const subs = ticketsData.filter(t => t.q === q);
-    if (subs.length > 0) {
-      qLabels.push(q);
-      qDataEntregables.push(subs.filter(t => t.codigo === 'ENTREGABLE').length);
-      qDataNoEntregables.push(subs.filter(t => t.codigo === 'NO_ENTREGABLE').length);
-    }
-  });
-
-  $('#tabBody').innerHTML = `
-    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-      <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
-        <div class="lbl">Tickets Entregables</div>
-        <div class="val">${fmt(cantEntregables)} <small style="font-size:14px;font-weight:700">(${pctEntregable})</small></div>
-        <div class="sub">100% Servidores Entregados IBK</div>
-      </div>
-      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
-        <div class="lbl">Tickets No Entregables</div>
-        <div class="val">${fmt(cantNoEntregables)} <small style="font-size:14px;font-weight:700">(${pctNoEntregable})</small></div>
-        <div class="sub">Al menos 1 servidor pendiente o no aceptado</div>
-      </div>
-      <div class="kpi-card" style="border-left:4px solid var(--k-slate);">
-        <div class="lbl">Tickets Desestimados</div>
-        <div class="val">${fmt(cantDesestimados)} <small style="font-size:14px;font-weight:700">(${pctDesestimado})</small></div>
-        <div class="sub">100% Servidores Desestimados</div>
-      </div>
-    </div>
-
-    <div class="row r-2">
-      <div class="tile">
-        <div class="th">
-          <div>
-            <h3>Distribución de Condición de Entrega por Ticket</h3>
-            <div class="sub">Basado en la regla de consolidación de servidores por ticket de aprovisionamiento</div>
-          </div>
-        </div>
-        <div class="cbox"><canvas id="cEntregablesDoughnut"></canvas></div>
-      </div>
-      <div class="tile">
-        <div class="th">
-          <div>
-            <h3>Tickets Entregables vs No Entregables por Q</h3>
-            <div class="sub">Comparativa por ventana de migración</div>
-          </div>
-        </div>
-        <div class="cbox"><canvas id="cEntregablesQ"></canvas></div>
-      </div>
-    </div>
-
-    <div class="tile">
-      <div class="th" style="flex-wrap:wrap; gap:10px;">
-        <div>
-          <h3>Detalle de Tickets de Aprovisionamiento y Condición</h3>
-          <div class="sub">Total de tickets analizados: ${fmt(totTickets)} tickets</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <input type="text" id="tbSearchTkt" placeholder="Buscar ticket, grupo o servidor..." style="min-width:240px;">
-          <select id="selFiltroTktEstado" style="min-width:170px;">
-            <option value="__ALL__">Todos los Estados</option>
-            <option value="ENTREGABLE">Entregables</option>
-            <option value="NO_ENTREGABLE">No Entregables</option>
-            <option value="DESESTIMADO">Desestimados</option>
-          </select>
-        </div>
-      </div>
-      <div class="tw" style="max-height: 520px;">
-        <table class="dt">
-          <thead>
-            <tr>
-              <th>Ticket Aprov.</th>
-              <th>Grupo Prioridad</th>
-              <th>Trimestre (Q)</th>
-              <th>Condición del Ticket</th>
-              <th class="num">Total Servidores</th>
-              <th class="num">Entregados IBK</th>
-              <th class="num">Pendientes / Otros</th>
-              <th class="num">Desestimados</th>
-              <th>Servidores Asociados</th>
-            </tr>
-          </thead>
-          <tbody id="tbodyTickets"></tbody>
-        </table>
-      </div>
-    </div>
-  `;
-
-  // Gráfico de Dona
-  state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
-    type: 'doughnut',
-    data: {
-      labels: ['Entregable', 'No Entregable', 'Desestimado'],
-      datasets: [{
-        data: [cantEntregables, cantNoEntregables, cantDesestimados],
-        backgroundColor: ['#107C41', '#BA1A1A', '#757575']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right' },
-        tooltip: {
-          callbacks: {
-            label: c => ` ${c.label}: ${c.raw} tickets (${(c.raw / totTickets * 100).toFixed(1)}%)`
-          }
-        }
-      }
-    }
-  });
-
-  // Gráfico de Barras por Q
-  state.charts.entregablesQ = new Chart($('#cEntregablesQ'), {
-    type: 'bar',
-    data: {
-      labels: qLabels,
-      datasets: [
-        {
-          label: 'Entregables',
-          data: qDataEntregables,
-          backgroundColor: '#107C41',
-          borderRadius: 4
-        },
-        {
-          label: 'No Entregables',
-          data: qDataNoEntregables,
-          backgroundColor: '#BA1A1A',
-          borderRadius: 4
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { stacked: true },
-        y: { stacked: true, beginAtZero: true }
-      }
-    }
-  });
-
-  // Render de filas de la tabla
-  const paintTktRows = (list) => {
-    $('#tbodyTickets').innerHTML = list.map(item => `
-      <tr>
-        <td class="mono font-weight:700;color:var(--k-red);">${esc(item.ticket)}</td>
-        <td><span class="badge badge-neutral">${esc(item.grupo)}</span></td>
-        <td style="font-weight:600;">${esc(item.q)}</td>
-        <td>
-          <span class="badge ${item.codigo==='ENTREGABLE'?'badge-ok':(item.codigo==='NO_ENTREGABLE'?'badge-alert':'badge-neutral')}" style="font-weight:700;padding:4px 8px;">
-            ${item.codigo==='ENTREGABLE'?'✅ ENTREGABLE':(item.codigo==='NO_ENTREGABLE'?'❌ NO ENTREGABLE':'⚪ DESESTIMADO')}
-          </span>
-        </td>
-        <td class="num font-weight:700;">${item.total}</td>
-        <td class="num" style="color:var(--c-ok);font-weight:600;">${item.entregados}</td>
-        <td class="num" style="color:${item.otros>0?'var(--c-alert)':'inherit'};font-weight:600;">${item.otros}</td>
-        <td class="num" style="color:var(--k-slate);">${item.desestimados}</td>
-        <td style="font-size:11.5px;color:var(--k-slate);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          ${esc(item.servidores.map(s => s.hostDestino).join(', '))}
-        </td>
-      </tr>
-    `).join('');
-  };
-
-  paintTktRows(ticketsData);
-
-  // Filtros internos de la tabla de tickets
-  const filterTktTable = () => {
-    const qStr = norm($('#tbSearchTkt').value);
-    const selEst = $('#selFiltroTktEstado').value;
-
-    let filtered = ticketsData;
-    if (selEst !== '__ALL__') {
-      filtered = filtered.filter(t => t.codigo === selEst);
-    }
-    if (qStr) {
-      filtered = filtered.filter(t => 
-        norm(t.ticket).includes(qStr) || 
-        norm(t.grupo).includes(qStr) || 
-        norm(t.q).includes(qStr) ||
-        t.servidores.some(s => norm(s.hostDestino).includes(qStr) || norm(s.servidor).includes(qStr))
-      );
-    }
-    paintTktRows(filtered);
-  };
-
-  $('#tbSearchTkt').oninput = filterTktTable;
-  $('#selFiltroTktEstado').onchange = filterTktTable;
 }
 
 function renderCockpit() {
@@ -1342,9 +1157,14 @@ function renderCockpit() {
   const matrizCounts = [cAmbosOk, cPendGA, cSoloServOk, cSoloTktOk, cDobleBrecha];
   const matrizColors = ['#107C41', '#546E7A', '#D9730D', '#0263E0', '#BA1A1A'];
 
-  const uniqueTkts = uniq(v.map(r => r.ticketAprov)).filter(Boolean);
+  const tktAllMap = computeTicketsMap(v);
+  const uniqueTkts = Object.keys(tktAllMap);
+
   const matrizTktsCounts = matrizCodigos.map(code => {
-    return uniq(v.filter(r => r.condicionCodigo === code).map(r => r.ticketAprov)).filter(Boolean).length;
+    return uniqueTkts.filter(t => {
+      const servs = tktAllMap[t].servidores;
+      return servs.some(r => r.condicionCodigo === code);
+    }).length;
   });
 
   const compOk = dedup.filter(r => r.isServerCompliant).length;
@@ -1372,8 +1192,8 @@ function renderCockpit() {
   const entregaCounts = {};
   dedup.forEach(r => { entregaCounts[r.estadoEntrega] = (entregaCounts[r.estadoEntrega] || 0) + 1; });
 
-  const tktsObsCount = uniq(v.filter(r => r.tieneObservacionAprov).map(r => r.ticketAprov)).length;
-  const tktsGACount = uniq(v.filter(r => r.esPendienteGA).map(r => r.ticketAprov)).length;
+  const tktsObsCount = uniqueTkts.filter(t => tktAllMap[t].tieneObsTicket).length;
+  const tktsGACount = uniqueTkts.filter(t => tktAllMap[t].esPendienteGA).length;
   const obsTicketData = {
     'Con Observación / Desvío': tktsObsCount,
     'Pendiente Validación G.A': tktsGACount,
@@ -1445,44 +1265,15 @@ function renderCockpit() {
 
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
-    data: {
-      labels: matrizLabels,
-      datasets: [{
-        data: matrizCounts,
-        backgroundColor: matrizColors
-      }]
-    },
+    data: { labels: matrizLabels, datasets: [{ data: matrizCounts, backgroundColor: matrizColors }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right' },
-        tooltip: {
-          callbacks: {
-            label: function(ctx) {
-              const idx = ctx.dataIndex;
-              const servCount = ctx.raw;
-              const servPct = (servCount / tot * 100).toFixed(1);
-              const tktCount = matrizTktsCounts[idx];
-              const tktPct = (tktCount / (uniqueTkts.length || 1) * 100).toFixed(1);
-              return [
-                ` ${ctx.label}`,
-                ` • Servidores Destino: ${servCount} (${servPct}%)`,
-                ` • Tickets Aprov. Únicos: ${tktCount} (${tktPct}%)`
-              ];
-            }
-          }
-        }
-      },
+      responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } },
       onClick: function(evt, elements) {
         if (!elements || !elements.length) return;
-        const clickedIdx = elements[0].index;
-        const selectedCode = matrizCodigos[clickedIdx];
-        
+        const selectedCode = matrizCodigos[elements[0].index];
         state.filters.condicion = selectedCode;
         $('#fCondicion').value = selectedCode;
         applyFilters();
-
         $$('.navbtn').forEach(b => b.classList.remove('on'));
         const invBtn = document.querySelector('.navbtn[data-tab="detalle"]');
         if (invBtn) invBtn.classList.add('on');
@@ -1494,48 +1285,14 @@ function renderCockpit() {
 
   state.charts.obsAprov = new Chart($('#cObsAprov'), {
     type: 'doughnut',
-    data: {
-      labels: Object.keys(obsTicketData),
-      datasets: [{
-        data: Object.values(obsTicketData),
-        backgroundColor: ['#BA1A1A', '#546E7A', '#107C41']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right' },
-        tooltip: {
-          callbacks: {
-            label: c => `${c.label}: ${c.raw} tickets únicos (${(c.raw / (uniqueTkts.length||1) * 100).toFixed(1)}%)`
-          }
-        }
-      }
-    }
+    data: { labels: Object.keys(obsTicketData), datasets: [{ data: Object.values(obsTicketData), backgroundColor: ['#BA1A1A', '#546E7A', '#107C41'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
   });
 
   state.charts.complianceDoughnut = new Chart($('#cComplianceDoughnut'), {
     type: 'doughnut',
-    data: {
-      labels: Object.keys(compStatusData),
-      datasets: [{
-        data: Object.values(compStatusData),
-        backgroundColor: ['#107C41', '#BA1A1A']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right' },
-        tooltip: {
-          callbacks: {
-            label: c => `${c.label}: ${c.raw} servidores (${(c.raw / tot * 100).toFixed(1)}%)`
-          }
-        }
-      }
-    }
+    data: { labels: Object.keys(compStatusData), datasets: [{ data: Object.values(compStatusData), backgroundColor: ['#107C41', '#BA1A1A'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
   });
 
   state.charts.controls = new Chart($('#cControls'), {
@@ -1543,44 +1300,322 @@ function renderCockpit() {
     data: {
       labels: controls.map(c => c.name),
       datasets: [{
-        label: '% Cumplimiento',
         data: controls.map(c => (c.ok / tot * 100).toFixed(1)),
         backgroundColor: controls.map(c => c.name.includes('TOTAL') ? '#0263E0' : ((c.ok / tot >= 0.85) ? '#107C41' : ((c.ok / tot >= 0.6) ? '#D9730D' : '#BA1A1A'))),
         borderRadius: 4
       }]
     },
     options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
       scales: { x: { max: 100, ticks: { callback: v => v + '%' } } }
     }
   });
 
   state.charts.q = new Chart($('#cQ'), {
     type: 'bar',
-    data: {
-      labels: Object.keys(qCounts),
-      datasets: [{
-        label: 'Servidores Destino',
-        data: Object.values(qCounts),
-        backgroundColor: '#FF462D',
-        borderRadius: 4
-      }]
-    },
+    data: { labels: Object.keys(qCounts), datasets: [{ data: Object.values(qCounts), backgroundColor: '#FF462D', borderRadius: 4 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
   state.charts.entrega = new Chart($('#cEntrega'), {
     type: 'doughnut',
+    data: { labels: Object.keys(entregaCounts), datasets: [{ data: Object.values(entregaCounts), backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+  });
+}
+
+function renderEntregables() {
+  let pool = state.raw;
+  if (state.filters.q !== '__ALL__') pool = pool.filter(r => r.q === state.filters.q);
+  if (state.filters.grupos && state.filters.grupos.size > 0) {
+    pool = pool.filter(r => {
+      for (const g of state.filters.grupos) {
+        if (r.grupoPrioridad.includes(g)) return true;
+      }
+      return false;
+    });
+  }
+
+  const ticketsData = computeTicketsEntregables(pool);
+  const totTickets = ticketsData.length || 1;
+
+  const cantEntregables = ticketsData.filter(t => t.codigo === 'ENTREGABLE').length;
+  const cantNoEntregables = ticketsData.filter(t => t.codigo === 'NO_ENTREGABLE').length;
+  const cantDesestimados = ticketsData.filter(t => t.codigo === 'DESESTIMADO').length;
+
+  const pctEntregable = pct(cantEntregables, totTickets);
+  const pctNoEntregable = pct(cantNoEntregables, totTickets);
+  const pctDesestimado = pct(cantDesestimados, totTickets);
+
+  const qs = uniq(state.raw.map(r => r.q)).sort();
+  const qLabels = [];
+  const qDataEntregables = [];
+  const qDataNoEntregables = [];
+
+  qs.forEach(q => {
+    const subs = ticketsData.filter(t => t.q === q);
+    if (subs.length > 0) {
+      qLabels.push(q);
+      qDataEntregables.push(subs.filter(t => t.codigo === 'ENTREGABLE').length);
+      qDataNoEntregables.push(subs.filter(t => t.codigo === 'NO_ENTREGABLE').length);
+    }
+  });
+
+  $('#tabBody').innerHTML = `
+    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+      <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
+        <div class="lbl">Tickets Entregables (100% Limpio)</div>
+        <div class="val">${fmt(cantEntregables)} <small style="font-size:14px;font-weight:700">(${pctEntregable})</small></div>
+        <div class="sub">Ticket sin desvío + 100% Serv. Entregados y Compliance</div>
+      </div>
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+        <div class="lbl">Tickets No Entregables</div>
+        <div class="val">${fmt(cantNoEntregables)} <small style="font-size:14px;font-weight:700">(${pctNoEntregable})</small></div>
+        <div class="sub">Con desvío en ticket, falta de entrega o brecha técnica</div>
+      </div>
+      <div class="kpi-card" style="border-left:4px solid var(--k-slate);">
+        <div class="lbl">Tickets Desestimados</div>
+        <div class="val">${fmt(cantDesestimados)} <small style="font-size:14px;font-weight:700">(${pctDesestimado})</small></div>
+        <div class="sub">100% Servidores Desestimados</div>
+      </div>
+    </div>
+
+    <div class="row r-2">
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Distribución de Condición de Entrega por Ticket</h3>
+            <div class="sub">Total analizado: ${fmt(totTickets)} tickets (${cantEntregables} Entregables + ${cantNoEntregables} No Entregables + ${cantDesestimados} Desestimados)</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cEntregablesDoughnut"></canvas></div>
+      </div>
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Tickets Entregables vs No Entregables por Q</h3>
+            <div class="sub">Comparativa por ventana de migración</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cEntregablesQ"></canvas></div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="th" style="flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3>Detalle de Tickets de Aprovisionamiento y Motivos de Validación</h3>
+          <div class="sub">Total de tickets analizados en la vista: <b>${fmt(totTickets)} tickets</b></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="tbSearchTkt" placeholder="Buscar ticket, servidor o motivo..." style="min-width:240px;">
+          <select id="selFiltroTktEstado" style="min-width:170px;">
+            <option value="__ALL__">Todos los Estados</option>
+            <option value="ENTREGABLE">Entregables (100% OK)</option>
+            <option value="NO_ENTREGABLE">No Entregables</option>
+            <option value="DESESTIMADO">Desestimados</option>
+          </select>
+        </div>
+      </div>
+      <div class="tw" style="max-height: 520px;">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Ticket Aprov.</th>
+              <th>Grupo Prioridad</th>
+              <th>Trimestre (Q)</th>
+              <th>Condición del Ticket</th>
+              <th>Motivo de No Entrega / Diagnóstico</th>
+              <th class="num">Total Serv.</th>
+              <th class="num">Entregados</th>
+              <th class="num">Pend. Entrega</th>
+              <th class="num">Con Brecha Comp.</th>
+              <th>Desvío en Ticket?</th>
+              <th>Acción / Auditoría</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyTickets"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
+    type: 'doughnut',
     data: {
-      labels: Object.keys(entregaCounts),
-      datasets: [{
-        data: Object.values(entregaCounts),
-        backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454']
-      }]
+      labels: ['Entregable (100% Limpio)', 'No Entregable (Con Brecha/Obs)', 'Desestimado'],
+      datasets: [{ data: [cantEntregables, cantNoEntregables, cantDesestimados], backgroundColor: ['#107C41', '#BA1A1A', '#757575'] }]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
   });
+
+  state.charts.entregablesQ = new Chart($('#cEntregablesQ'), {
+    type: 'bar',
+    data: {
+      labels: qLabels,
+      datasets: [
+        { label: 'Entregables', data: qDataEntregables, backgroundColor: '#107C41', borderRadius: 4 },
+        { label: 'No Entregables', data: qDataNoEntregables, backgroundColor: '#BA1A1A', borderRadius: 4 }
+      ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+  });
+
+  const paintTktRows = (list) => {
+    $('#tbodyTickets').innerHTML = list.map(item => `
+      <tr>
+        <td class="mono font-weight:700;color:var(--k-red);">${esc(item.ticket)}</td>
+        <td><span class="badge badge-neutral">${esc(item.grupo)}</span></td>
+        <td style="font-weight:600;">${esc(item.q)}</td>
+        <td>
+          <span class="badge ${item.codigo==='ENTREGABLE'?'badge-ok':(item.codigo==='NO_ENTREGABLE'?'badge-alert':'badge-neutral')}" style="font-weight:700;padding:4px 8px;">
+            ${item.codigo==='ENTREGABLE'?'✅ ENTREGABLE':(item.codigo==='NO_ENTREGABLE'?'❌ NO ENTREGABLE':'⚪ DESESTIMADO')}
+          </span>
+        </td>
+        <td style="font-size:11.5px;font-weight:600;color:${item.codigo==='ENTREGABLE'?'var(--c-ok)':'var(--c-alert)'};">
+          ${esc(item.motivosStr)}
+        </td>
+        <td class="num font-weight:700;">${item.total}</td>
+        <td class="num" style="color:var(--c-ok);font-weight:600;">${item.entregados}</td>
+        <td class="num" style="color:${item.pendientesEntrega>0?'var(--c-alert)':'inherit'};font-weight:600;">${item.pendientesEntrega}</td>
+        <td class="num" style="color:${item.conBrechaTecnica>0?'var(--c-alert)':'inherit'};font-weight:600;">${item.conBrechaTecnica}</td>
+        <td>
+          <span class="badge ${item.tieneObsTicket ? 'badge-alert' : (item.esPendienteGA ? 'badge-ga' : 'badge-ok')}">
+            ${item.tieneObsTicket ? 'SÍ (DESVÍO)' : (item.esPendienteGA ? 'PEND. G.A' : 'LIMPIO')}
+          </span>
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="abrirAuditoriaTicket('${esc(item.ticket)}')">🔍 Auditar</button>
+        </td>
+      </tr>
+    `).join('');
+  };
+
+  paintTktRows(ticketsData);
+
+  const filterTktTable = () => {
+    const qStr = norm($('#tbSearchTkt').value);
+    const selEst = $('#selFiltroTktEstado').value;
+    let filtered = ticketsData;
+    if (selEst !== '__ALL__') filtered = filtered.filter(t => t.codigo === selEst);
+    if (qStr) {
+      filtered = filtered.filter(t => 
+        norm(t.ticket).includes(qStr) || 
+        norm(t.grupo).includes(qStr) || 
+        norm(t.q).includes(qStr) ||
+        norm(t.motivosStr).includes(qStr) ||
+        t.servidores.some(s => norm(s.hostDestino).includes(qStr) || norm(s.servidor).includes(qStr))
+      );
+    }
+    paintTktRows(filtered);
+  };
+
+  $('#tbSearchTkt').oninput = filterTktTable;
+  $('#selFiltroTktEstado').onchange = filterTktTable;
+}
+
+function abrirAuditoriaTicket(tktNum) {
+  // Busca todos los servidores vinculados a este ticket específico
+  const rowsTicket = state.raw.filter(r => {
+    return (r.tktParts && r.tktParts.includes(tktNum)) || r.ticketAprov === tktNum;
+  });
+  if (!rowsTicket.length) return;
+  const primer = rowsTicket[0];
+  const tktData = computeTicketsEntregables(rowsTicket).find(t => t.ticket === tktNum) || computeTicketsEntregables(rowsTicket)[0];
+  const estadosObsArray = Array.from(tktData.estadosObsTexto);
+  const bitacoraArray = Array.from(tktData.queFaltaTextos);
+
+  const content = `
+    <div style="background:#FAF8F5;border:1px solid var(--k-line);border-radius:8px;padding:14px;margin-bottom:16px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;font-size:13px;">
+        <div><b>Ticket Aprovisionamiento:</b> <span class="mono" style="color:var(--k-red);font-weight:700;font-size:14px;">${esc(tktNum)}</span></div>
+        <div><b>Grupo Prioritario:</b> <span class="badge badge-neutral">${esc(primer.grupoPrioridad)}</span></div>
+        <div><b>Trimestre (Q):</b> <b>${esc(primer.q)}</b></div>
+        <div><b>Condición de Entrega:</b> 
+          <span class="badge ${tktData.codigo==='ENTREGABLE'?'badge-ok':(tktData.codigo==='NO_ENTREGABLE'?'badge-alert':'badge-neutral')}" style="font-weight:700;font-size:12px;">
+            ${tktData.codigo==='ENTREGABLE'?'✅ ENTREGABLE':(tktData.codigo==='NO_ENTREGABLE'?'❌ NO ENTREGABLE':'⚪ DESESTIMADO')}
+          </span>
+        </div>
+      </div>
+      
+      <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--k-line);font-size:12.5px;">
+        <div><b>Estado en Columna O (Aprovisionamiento):</b> 
+          <span class="badge ${tktData.tieneObsTicket?'badge-alert':(tktData.esPendienteGA?'badge-ga':'badge-ok')}">
+            ${esc(estadosObsArray.join(' | ') || primer.estadoAprov || 'Sin registro')}
+          </span>
+        </div>
+        ${bitacoraArray.length ? `<div style="margin-top:6px;color:#8C2516;"><b>¿Qué Falta? / Bitácora:</b> ${esc(bitacoraArray.join(' | '))}</div>` : ''}
+        <div style="margin-top:6px;font-weight:700;color:${tktData.codigo==='ENTREGABLE'?'var(--c-ok)':'var(--c-alert)'};">
+          <b>Diagnóstico de Validación:</b> ${esc(tktData.motivosStr)}
+        </div>
+      </div>
+    </div>
+
+    <h4 style="margin:0 0 10px;font-size:14px;">Desglose de Servidores Asociados (${rowsTicket.length} servidores):</h4>
+    <div class="tw" style="max-height:380px;">
+      <table class="dt">
+        <thead>
+          <tr>
+            <th>Servidor Destino</th>
+            <th>Servidor Origen</th>
+            <th>Ambiente</th>
+            <th>Estado Entrega</th>
+            <th>Compliance</th>
+            <th>¿Qué le falta al Servidor?</th>
+            <th>Checklist Individual de Controles (7 Requisitos)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsTicket.map(s => {
+            const esDesest = s.esServidorDesestimado;
+            return `
+            <tr>
+              <td class="mono font-weight:700;color:var(--k-red);">${esc(s.hostDestino)}</td>
+              <td class="mono" style="color:var(--k-slate);">${esc(s.servidor)}</td>
+              <td><b>${esc(s.ambiente)}</b></td>
+              <td>
+                <span class="badge ${esDesest ? 'badge-neutral' : (s.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(s.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn'))}">
+                  ${esc(s.estadoEntrega)}
+                </span>
+              </td>
+              <td>
+                <span class="badge ${esDesest ? 'badge-neutral' : (s.isServerCompliant ? 'badge-ok' : 'badge-alert')}">
+                  ${esDesest ? 'N/A (DESESTIMADO)' : (s.isServerCompliant ? 'OK' : 'CON BRECHA')}
+                </span>
+              </td>
+              <td style="font-size:11.5px;font-weight:700;color:${esDesest ? 'var(--k-slate)' : (s.isServerCompliant ? 'var(--c-ok)' : 'var(--c-alert)')};">
+                ${esDesest ? '⚪ No Aplica (Servidor Desestimado)' : (s.isServerCompliant ? '✅ 100% Conforme' : `❌ Falta: ${esc(s.controlesFaltantes.join(', '))}`)}
+              </td>
+              <td style="line-height:2.0;">
+                ${renderControlChip('Qualys', s.qualys, s.okQualys, '', esDesest)}
+                ${renderControlChip('Antivirus', s.av, s.okAv, '', esDesest)}
+                ${renderControlChip('Hardening S.O', s.remSo, s.okRemSo, '', esDesest)}
+                ${renderControlChip('Parchado', s.parchado, s.okParchado, '', esDesest)}
+                ${renderControlChip('Subsistema', s.remSub, s.okRemSub, '', esDesest)}
+                ${renderControlChip('Backup', s.bkp, s.okBkp, s.ticketBkp && s.ticketBkp !== 'Sin ticket' ? `Tkt: ${s.ticketBkp}` : '', esDesest)}
+                ${renderControlChip('Monitoreo', s.mon, s.okMon, '', esDesest)}
+              </td>
+            </tr>
+          `;}).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $('#modalRoot').innerHTML = `
+    <div class="backdrop" id="modalBackdrop">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Auditoría de Ticket: ${esc(tktNum)} (${primer.grupoPrioridad})</h3>
+          <button class="btn-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">${content}</div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderQBreakdown() {
@@ -1591,30 +1626,23 @@ function renderQBreakdown() {
     const dedup = dedupeByDestServer(subset);
     const totServers = dedup.length;
     const totRows = subset.length;
-    
     const ambosOk = dedup.filter(r => r.condicionCodigo === 'AMBOS_OK').length;
     const pendGA = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
     const dobleBrecha = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
     
-    const tktQMap = {};
-    subset.forEach(r => {
-      const t = r.ticketAprov;
-      if (!t) return;
-      if (!tktQMap[t]) tktQMap[t] = { hasObs: false, isGA: false, allServersComp: true };
-      if (r.esPendienteGA) tktQMap[t].isGA = true;
-      if (r.tieneObservacionAprov) tktQMap[t].hasObs = true;
-      if (!r.isServerCompliant) tktQMap[t].allServersComp = false;
-    });
+    const tktQMap = computeTicketsMap(subset);
     const qTkts = Object.keys(tktQMap);
-    const qTktsAmbosOk = qTkts.filter(t => !tktQMap[t].hasObs && !tktQMap[t].isGA && tktQMap[t].allServersComp).length;
-    const qTktsGA = qTkts.filter(t => tktQMap[t].isGA).length;
-    const qTktsPend = qTkts.length - qTktsAmbosOk - qTktsGA;
+    const qTktsAmbosOk = qTkts.filter(t => {
+      const item = tktQMap[t];
+      return !item.tieneObsTicket && !item.esPendienteGA && item.pendientesEntrega === 0 && item.conBrechaTecnica === 0 && item.entregados > 0;
+    }).length;
 
+    const qTktsGA = qTkts.filter(t => tktQMap[t].esPendienteGA).length;
+    const qTktsPend = qTkts.length - qTktsAmbosOk - qTktsGA;
     const entregados = dedup.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length;
     const noAceptados = dedup.filter(r => r.estadoEntrega === 'No Aceptado / Observado').length;
-    const pendEntrega = dedup.filter(r => r.estadoEntrega === 'Pendiente de entrega').length;
 
-    return { q, totServers, totRows, ambosOk, pendGA, dobleBrecha, qTkts: qTkts.length, qTktsAmbosOk, qTktsGA, qTktsPend, entregados, noAceptados, pendEntrega, pctAmbos: pct(ambosOk, totServers), pctTktsOk: pct(qTktsAmbosOk, qTkts.length) };
+    return { q, totServers, totRows, ambosOk, pendGA, dobleBrecha, qTkts: qTkts.length, qTktsAmbosOk, qTktsGA, qTktsPend, entregados, noAceptados, pctAmbos: pct(ambosOk, totServers), pctTktsOk: pct(qTktsAmbosOk, qTkts.length) };
   });
 
   $('#tabBody').innerHTML = `
@@ -1638,7 +1666,7 @@ function renderQBreakdown() {
               <th class="num">⭐ Ambos OK</th>
               <th class="num">⏳ Pend. G.A</th>
               <th class="num">🚨 Doble Brecha</th>
-              <th class="num">Entregado / Aceptado</th>
+              <th class="num">Entregado</th>
               <th class="num">No Aceptado</th>
             </tr>
           </thead>
@@ -1702,23 +1730,18 @@ function renderGrupos() {
               const dedup = dedupeByDestServer(g.subset);
               const totServers = dedup.length;
               const totRows = g.subset.length;
-
               const ambosOk = dedup.filter(r => r.condicionCodigo === 'AMBOS_OK').length;
               const pendGA = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
               const dobleBrecha = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
               
-              const tktGMap = {};
-              g.subset.forEach(r => {
-                const t = r.ticketAprov;
-                if (!t) return;
-                if (!tktGMap[t]) tktGMap[t] = { hasObs: false, isGA: false, allServersComp: true };
-                if (r.esPendienteGA) tktGMap[t].isGA = true;
-                if (r.tieneObservacionAprov) tktGMap[t].hasObs = true;
-                if (!r.isServerCompliant) tktGMap[t].allServersComp = false;
-              });
+              const tktGMap = computeTicketsMap(g.subset);
               const gTkts = Object.keys(tktGMap);
-              const gTktsAmbosOk = gTkts.filter(t => !tktGMap[t].hasObs && !tktGMap[t].isGA && tktGMap[t].allServersComp).length;
-              const gTktsGA = gTkts.filter(t => tktGMap[t].isGA).length;
+              const gTktsAmbosOk = gTkts.filter(t => {
+                const item = tktGMap[t];
+                return !item.tieneObsTicket && !item.esPendienteGA && item.pendientesEntrega === 0 && item.conBrechaTecnica === 0 && item.entregados > 0;
+              }).length;
+
+              const gTktsGA = gTkts.filter(t => tktGMap[t].esPendienteGA).length;
               const gTktsPend = gTkts.length - gTktsAmbosOk - gTktsGA;
 
               return `
@@ -1923,7 +1946,6 @@ function renderDetalle() {
   const v = state.view;
   const totServers = distinctDestServers(v);
   const totRows = v.length;
-
   const baseNci = uniq(state.raw.map(r => r.nci)).filter(Boolean).sort();
   const baseEntrega = ['Entregado / Aceptado', 'No Aceptado / Observado', 'Pendiente de entrega', 'Desestimado', 'Reprogramado'];
 
@@ -1993,20 +2015,22 @@ function renderDetalle() {
           </span>
         </td>
         <td>
-          <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':(r.estadoEntrega==='Pendiente de entrega'?'badge-warn':'badge-neutral'))}">
+          <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':(r.estadoEntrega==='Desestimado'?'badge-neutral':'badge-warn'))}">
             ${esc(r.estadoEntrega)}
           </span>
         </td>
         <td>
-          ${r.esRechazadoNoAceptado ? (
+          ${r.esServidorDesestimado ? (
+            `<span class="badge badge-neutral" style="font-weight:700;">⚪ DESESTIMADO</span>`
+          ) : (r.esRechazadoNoAceptado ? (
             `<span class="badge badge-alert" style="font-weight:700;">❌ OBJETO: NO ACEPTADO</span>`
           ) : (r.diasHabiles !== null ? (
             r.supero22Dias 
               ? `<span class="badge badge-ok" style="font-weight:700;">✅ EXCEDIÓ 22D (ACEPTADO)</span>`
               : `<span class="badge badge-warn" style="font-weight:700;">⏳ EN PLAZO (${r.diasHabiles}/22d)</span>`
-          ) : '<span style="color:var(--k-slate);">Sin fecha</span>')}
+          ) : '<span style="color:var(--k-slate);">Sin fecha</span>'))}
         </td>
-        <td class="num" style="font-weight:700;color:${r.esRechazadoNoAceptado?'var(--c-alert)':(r.supero22Dias?'var(--c-ok)':'inherit')};">
+        <td class="num" style="font-weight:700;color:${r.esServidorDesestimado?'var(--k-slate)':(r.esRechazadoNoAceptado?'var(--c-alert)':(r.supero22Dias?'var(--c-ok)':'inherit'))};">
           ${r.diasHabiles !== null ? `${r.diasHabiles} días útiles` : '—'}
         </td>
         <td style="white-space:nowrap;font-weight:500;">${esc(r.fechaEntrega)}</td>
@@ -2037,12 +2061,8 @@ function renderDetalle() {
     const entregaSel = $('#dtFilterEntrega').value;
 
     let filtered = v;
-    if (nciSel !== '__ALL__') {
-      filtered = filtered.filter(r => r.nci === nciSel);
-    }
-    if (entregaSel !== '__ALL__') {
-      filtered = filtered.filter(r => r.estadoEntrega === entregaSel);
-    }
+    if (nciSel !== '__ALL__') filtered = filtered.filter(r => r.nci === nciSel);
+    if (entregaSel !== '__ALL__') filtered = filtered.filter(r => r.estadoEntrega === entregaSel);
     if (q) {
       filtered = filtered.filter(r => 
         norm(r.servidor).includes(q) || norm(r.hostDestino).includes(q) ||
@@ -2056,16 +2076,8 @@ function renderDetalle() {
   };
 
   $('#tbSearch').oninput = filterDetalleTable;
-  $('#dtFilterNci').onchange = e => {
-    state.filters.nci = e.target.value;
-    $('#fNci').value = e.target.value;
-    applyFilters();
-  };
-  $('#dtFilterEntrega').onchange = e => {
-    state.filters.entrega = e.target.value;
-    $('#fEntrega').value = e.target.value;
-    applyFilters();
-  };
+  $('#dtFilterNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
+  $('#dtFilterEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
 }
 
 function drillQ(qName) {
@@ -2078,26 +2090,21 @@ function drillServer(id) {
   const r = state.raw.find(x => x._id === id);
   if (!r) return;
 
-  const renderBadgeCheck = (name, rawVal, isOk) => {
-    if (isNA(rawVal)) {
-      return `<div class="badge badge-neutral" style="padding:4px 8px;">${name}: NO APLICA</div>`;
-    }
-    return `<div class="badge ${isOk ? 'badge-ok' : 'badge-alert'}" style="padding:4px 8px;">${name}: ${isOk ? 'CONFORME' : 'NO CONFORME'}</div>`;
-  };
-
   const slaTexto = r.esRechazadoNoAceptado 
     ? '🚨 NO ACEPTADO (ENTREGA INVALIDADA POR OBJECIÓN)' 
     : (r.supero22Dias 
         ? `✅ EXCEDIÓ 22 DÍAS HÁBILES (${r.diasHabiles} días transcurridos - Aceptado por SLA)` 
         : (r.diasHabiles !== null ? `⏳ EN PLAZO (${r.diasHabiles} de 22 días hábiles)` : 'Sin fecha'));
 
+  const esDesest = r.esServidorDesestimado;
+
   const content = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
       <div><b>Servidor Destino:</b> <span class="mono" style="color:var(--k-red);font-weight:700;">${esc(r.hostDestino)}</span></div>
       <div><b>Servidor Origen:</b> <span class="mono">${esc(r.servidor)}</span></div>
       <div><b>Condición Integral:</b> <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">${esc(r.condicionCruzada)}</span></div>
-      <div><b>Estado de Entrega:</b> <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn')}">${esc(r.estadoEntrega)}</span></div>
-      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${r.esRechazadoNoAceptado?'badge-alert':(r.supero22Dias?'badge-ok':'badge-warn')}">${slaTexto}</span></div>
+      <div><b>Estado de Entrega:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn'))}">${esc(r.estadoEntrega)}</span></div>
+      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.esRechazadoNoAceptado?'badge-alert':(r.supero22Dias?'badge-ok':'badge-warn'))}">${esDesest ? '⚪ N/A (Desestimado)' : slaTexto}</span></div>
       <div><b>Fecha Entrega IBK:</b> ${esc(r.fechaEntrega)}</div>
       <div><b>Trimestre (Q):</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.q)}</span></div>
       <div><b>Grupo de Prioridad:</b> ${esc(r.grupoPrioridad)}</div>
@@ -2107,18 +2114,18 @@ function drillServer(id) {
       <div><b>Estado Ticket:</b> <span class="badge ${r.esPendienteGA?'badge-ga':(r.tieneObservacionAprov?'badge-alert':'badge-ok')}">${esc(r.estadoAprov)}</span></div>
       <div><b>NCI:</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.nci || 'No asignado')}</span></div>
       <div><b>Categoría Regularización:</b> ${esc(r.catReg)}</div>
-      <div><b>Compliance Servidor:</b> ${r.isServerCompliant ? '⭐ CONFORME (7/7 OK o N/A)' : '❌ CON BRECHA TÉCNICA'}</div>
+      <div><b>Compliance Servidor:</b> ${esDesest ? '⚪ N/A (DESESTIMADO)' : (r.isServerCompliant ? '⭐ CONFORME (7/7 OK o N/A)' : '❌ CON BRECHA TÉCNICA')}</div>
     </div>
     <div style="border-top:1px solid var(--k-line);padding-top:12px;margin-bottom:12px;">
       <h4 style="margin:0 0 8px;">Checklist de Controles Técnicos (7/7 Mandatorios):</h4>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;">
-        ${renderBadgeCheck('Qualys', r.qualys, r.okQualys)}
-        ${renderBadgeCheck('Antivirus', r.av, r.okAv)}
-        ${renderBadgeCheck('Remediación S.O', r.remSo, r.okRemSo)}
-        ${renderBadgeCheck('Parchado S.O', r.parchado, r.okParchado)}
-        ${renderBadgeCheck('Remediación Sub', r.remSub, r.okRemSub)}
-        ${renderBadgeCheck('Backup', r.bkp, r.okBkp)}
-        ${renderBadgeCheck('Monitoreo', r.mon, r.okMon)}
+      <div style="line-height:2.2;">
+        ${renderControlChip('Qualys', r.qualys, r.okQualys, '', esDesest)}
+        ${renderControlChip('Antivirus', r.av, r.okAv, '', esDesest)}
+        ${renderControlChip('Hardening S.O', r.remSo, r.okRemSo, '', esDesest)}
+        ${renderControlChip('Parchado', r.parchado, r.okParchado, '', esDesest)}
+        ${renderControlChip('Subsistema', r.remSub, r.okRemSub, '', esDesest)}
+        ${renderControlChip('Backup', r.bkp, r.okBkp, r.ticketBkp && r.ticketBkp !== 'Sin ticket' ? `Tkt: ${r.ticketBkp}` : '', esDesest)}
+        ${renderControlChip('Monitoreo', r.mon, r.okMon, '', esDesest)}
       </div>
     </div>
     ${r.queFalta ? `<div style="background:#FFF9F7;border-left:3px solid var(--k-red);padding:10px 14px;border-radius:4px;font-size:12px;"><b>¿Qué Falta? / Bitácora:</b><br>${esc(r.queFalta).replace(/\\n/g, '<br>')}</div>` : ''}
@@ -2157,7 +2164,8 @@ function render() {
     detalle: renderDetalle
   };
 
-  (views[state.tab] || renderCockpit)();
+  const activeRenderFn = views[state.tab] || renderCockpit;
+  activeRenderFn();
 
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
@@ -2168,7 +2176,7 @@ function render() {
     controles: 'Controles de Seguridad del Servidor',
     nci: 'Gestión de Non-Compliance (NCI)',
     detalle: 'Inventario de Servidores y Filtros'
-  }[state.tab];
+  }[state.tab] || 'Cockpit Ejecutivo';
 
   const totServers = distinctDestServers(state.view);
   const totRows = state.view.length;
@@ -2182,7 +2190,8 @@ function boot(data) {
   $('#gate').classList.add('hide');
   $('#shell').classList.remove('hide');
   const uniqDest = distinctDestServers(state.raw);
-  const uniqTkts = uniq(state.raw.map(r => r.ticketAprov)).filter(Boolean).length;
+  const tktAllMap = computeTicketsMap(state.raw);
+  const uniqTkts = Object.keys(tktAllMap).length;
   $('#navFoot').innerHTML = `<b>Consolidado Desvíos</b><br>${fmt(uniqTkts)} tickets únicos<br>${fmt(uniqDest)} servidores destino únicos`;
 }
 
@@ -2191,12 +2200,13 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-      const sheet = wb.Sheets['Consolidado'] || wb.Sheets[wb.SheetNames[0]];
+      const sheetName = wb.SheetNames.includes('Consolidado') ? 'Consolidado' : wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
       const json = XLSX.utils.sheet_to_json(sheet, { defval: null });
-      if (!json || !json.length) throw new Error('El archivo no contiene registros.');
+      if (!json || !json.length) throw new Error('La hoja seleccionada no contiene registros.');
       boot(json);
     } catch (err) {
-      alert('Error al leer el Excel: ' + err.message);
+      alert('Error al procesar el archivo: ' + err.message);
     }
   };
   reader.readAsArrayBuffer(file);
