@@ -216,6 +216,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .badge-info { background: var(--c-blue-bg); color: var(--c-blue); border: 1px solid var(--c-blue); }
 .badge-neutral { background: #EFEFEF; color: #444; border: 1px solid #D5D5D5; }
 
+/* Chips individuales de auditoría */
 .chip-ctl {
   display: inline-flex;
   align-items: center;
@@ -550,7 +551,7 @@ function normalizeData(rows) {
     const tktRaw = getVal('Ticket de Aprovisionamiento');
     const tktClean = tktRaw.replace(/\.0$/, '').replace(/_/g, '').trim();
 
-    // Desglose de tickets individuales (manejo de '3642261 / 4052177')
+    // Desglose de tickets individuales (soporte para celdas combinadas '3642261 / 4052177')
     const tktParts = tktClean.split('/').map(p => p.trim()).filter(Boolean);
 
     const gMatches = [];
@@ -586,17 +587,18 @@ function normalizeData(rows) {
     const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong') || forecastEstado === 'Desestimado';
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
 
+    // REGLA ACTUALIZADA: 7 DÍAS HÁBILES (LUNES A VIERNES SIN FERIADOS PERÚ)
     const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
     const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
     const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
-    const supero22Dias = (diasHabiles !== null && diasHabiles > 22);
+    const supero7Dias = (diasHabiles !== null && diasHabiles > 7);
 
     let estadoEntrega = 'Otros / Por Definir';
     if (esServidorDesestimado) {
       estadoEntrega = 'Desestimado';
     } else if (esRechazadoNoAceptado) {
       estadoEntrega = 'No Aceptado / Observado';
-    } else if (supero22Dias || esServidorEntregadoIBK) {
+    } else if (supero7Dias || esServidorEntregadoIBK) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
@@ -627,6 +629,7 @@ function normalizeData(rows) {
     );
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
+    // CONTROLES DE COMPLIANCE TÉCNICO (7 CONTROLES)
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
@@ -649,6 +652,7 @@ function normalizeData(rows) {
     const mon = getVal('Monitoreo(UIM, OEM, GSMA)');
     const okMon = isControlOK(mon);
 
+    // Servidores desestimados están exentos y marcados como conformes por diseño
     const isServerCompliant = esServidorDesestimado || (okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon);
 
     const controlesFaltantes = [];
@@ -712,7 +716,7 @@ function normalizeData(rows) {
       forecastEstado,
       esMigrado,
       ticketAprov: tktClean,
-      tktParts, // Lista de tickets individuales
+      tktParts,
       grupoPrioridad,
       estadoEntrega,
       etiqCat,
@@ -741,7 +745,7 @@ function normalizeData(rows) {
       fechaEntrega: fmtFecha(fechaEntregaRaw),
       fechaEntregaObj,
       diasHabiles,
-      supero22Dias
+      supero7Dias
     };
   });
 }
@@ -943,11 +947,10 @@ function initFilters() {
   };
 }
 
-// CÓMPUTO DE TICKETS INDIVIDUALES: CADA TICKET CUENTA POR SEPARADO (TOTAL: 126 TICKETS)
+// CÓMPUTO INDIVIDUAL DE LOS 126 TICKETS (DESGLOSA CELDAS COMBINADAS)
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
-    // Si la celda contiene '3642261 / 4052177', se evalúa para 3642261 y para 4052177 por separado
     const lista = (r.tktParts && r.tktParts.length) ? r.tktParts : [r.ticketAprov];
     lista.forEach(t => {
       if (!t) return;
@@ -973,7 +976,7 @@ function computeTicketsMap(rows) {
 
       if (r.esServidorDesestimado) {
         tktMap[t].desestimados++;
-      } else if ((r.esServidorEntregadoIBK || r.supero22Dias) && !r.esRechazadoNoAceptado) {
+      } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
         tktMap[t].entregados++;
       } else {
         tktMap[t].pendientesEntrega++;
@@ -1009,7 +1012,6 @@ function renderKPIs() {
   const allTktsList = Object.keys(tktMap);
   const totTkts = allTktsList.length;
 
-  // Un ticket está Todo OK si el ticket no tiene desvío/obs, no está en GA y el 100% de sus servidores no desestimados están entregados y con compliance
   const tktsAmbosOk = allTktsList.filter(t => {
     const item = tktMap[t];
     return !item.tieneObsTicket && !item.esPendienteGA && item.pendientesEntrega === 0 && item.conBrechaTecnica === 0 && item.entregados > 0;
@@ -1054,7 +1056,7 @@ function renderKPIs() {
   const pendGAServ = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
   const dobleBrechaServ = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
   const compliantServers = dedup.filter(r => r.isServerCompliant).length;
-  const servidoresSupero22 = dedup.filter(r => r.supero22Dias && !r.esRechazadoNoAceptado).length;
+  const servidoresSupero7 = dedup.filter(r => r.supero7Dias && !r.esRechazadoNoAceptado && !r.esServidorDesestimado).length;
   const servidoresNoAceptados = dedup.filter(r => r.esRechazadoNoAceptado).length;
 
   $('#kpiStrip').innerHTML = `
@@ -1074,9 +1076,9 @@ function renderKPIs() {
       <div class="sub">Con observación o brecha técnica</div>
     </div>
     <div class="kpi-card ok">
-      <div class="lbl">Aceptados por SLA (22d)</div>
-      <div class="val">${fmt(servidoresSupero22)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero22, totServers)})</small></div>
-      <div class="sub">Sin objeción y >22 días útiles</div>
+      <div class="lbl">Aceptados por SLA (7d)</div>
+      <div class="val">${fmt(servidoresSupero7)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero7, totServers)})</small></div>
+      <div class="sub">Sin objeción y >7 días útiles</div>
     </div>
     <div class="kpi-card alert">
       <div class="lbl">🚨 Entrega No Aceptada</div>
@@ -1254,7 +1256,7 @@ function renderCockpit() {
       <div class="tile">
         <div class="th">
           <div>
-            <h3>Estado de Entrega del Servidor a IBK (SLA 22 Días Útiles)</h3>
+            <h3>Estado de Entrega del Servidor a IBK (SLA 7 Días Útiles)</h3>
             <div class="sub">Entregado/Aceptado vs No Aceptado vs Pendiente de entrega</div>
           </div>
         </div>
@@ -1515,7 +1517,6 @@ function renderEntregables() {
 }
 
 function abrirAuditoriaTicket(tktNum) {
-  // Busca todos los servidores vinculados a este ticket específico
   const rowsTicket = state.raw.filter(r => {
     return (r.tktParts && r.tktParts.includes(tktNum)) || r.ticketAprov === tktNum;
   });
@@ -1979,7 +1980,7 @@ function renderDetalle() {
               <th>Servidor Destino</th>
               <th>Condición Integral</th>
               <th>Estado Entrega</th>
-              <th>SLA Entrega (22d)</th>
+              <th>SLA Entrega (7d)</th>
               <th>Días Hábiles Transcurridos</th>
               <th>Fecha Entrega IBK</th>
               <th>Ticket Aprov.</th>
@@ -2025,12 +2026,12 @@ function renderDetalle() {
           ) : (r.esRechazadoNoAceptado ? (
             `<span class="badge badge-alert" style="font-weight:700;">❌ OBJETO: NO ACEPTADO</span>`
           ) : (r.diasHabiles !== null ? (
-            r.supero22Dias 
-              ? `<span class="badge badge-ok" style="font-weight:700;">✅ EXCEDIÓ 22D (ACEPTADO)</span>`
-              : `<span class="badge badge-warn" style="font-weight:700;">⏳ EN PLAZO (${r.diasHabiles}/22d)</span>`
+            r.supero7Dias 
+              ? `<span class="badge badge-ok" style="font-weight:700;">✅ EXCEDIÓ 7D (ACEPTADO)</span>`
+              : `<span class="badge badge-warn" style="font-weight:700;">⏳ EN PLAZO (${r.diasHabiles}/7d)</span>`
           ) : '<span style="color:var(--k-slate);">Sin fecha</span>'))}
         </td>
-        <td class="num" style="font-weight:700;color:${r.esServidorDesestimado?'var(--k-slate)':(r.esRechazadoNoAceptado?'var(--c-alert)':(r.supero22Dias?'var(--c-ok)':'inherit'))};">
+        <td class="num" style="font-weight:700;color:${r.esServidorDesestimado?'var(--k-slate)':(r.esRechazadoNoAceptado?'var(--c-alert)':(r.supero7Dias?'var(--c-ok)':'inherit'))};">
           ${r.diasHabiles !== null ? `${r.diasHabiles} días útiles` : '—'}
         </td>
         <td style="white-space:nowrap;font-weight:500;">${esc(r.fechaEntrega)}</td>
@@ -2092,9 +2093,9 @@ function drillServer(id) {
 
   const slaTexto = r.esRechazadoNoAceptado 
     ? '🚨 NO ACEPTADO (ENTREGA INVALIDADA POR OBJECIÓN)' 
-    : (r.supero22Dias 
-        ? `✅ EXCEDIÓ 22 DÍAS HÁBILES (${r.diasHabiles} días transcurridos - Aceptado por SLA)` 
-        : (r.diasHabiles !== null ? `⏳ EN PLAZO (${r.diasHabiles} de 22 días hábiles)` : 'Sin fecha'));
+    : (r.supero7Dias 
+        ? `✅ EXCEDIÓ 7 DÍAS HÁBILES (${r.diasHabiles} días transcurridos - Aceptado por SLA)` 
+        : (r.diasHabiles !== null ? `⏳ EN PLAZO (${r.diasHabiles} de 7 días hábiles)` : 'Sin fecha'));
 
   const esDesest = r.esServidorDesestimado;
 
@@ -2104,7 +2105,7 @@ function drillServer(id) {
       <div><b>Servidor Origen:</b> <span class="mono">${esc(r.servidor)}</span></div>
       <div><b>Condición Integral:</b> <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">${esc(r.condicionCruzada)}</span></div>
       <div><b>Estado de Entrega:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn'))}">${esc(r.estadoEntrega)}</span></div>
-      <div><b>SLA 22 Días Útiles:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.esRechazadoNoAceptado?'badge-alert':(r.supero22Dias?'badge-ok':'badge-warn'))}">${esDesest ? '⚪ N/A (Desestimado)' : slaTexto}</span></div>
+      <div><b>SLA 7 Días Útiles:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.esRechazadoNoAceptado?'badge-alert':(r.supero7Dias?'badge-ok':'badge-warn'))}">${esDesest ? '⚪ N/A (Desestimado)' : slaTexto}</span></div>
       <div><b>Fecha Entrega IBK:</b> ${esc(r.fechaEntrega)}</div>
       <div><b>Trimestre (Q):</b> <span style="color:var(--k-red);font-weight:700;">${esc(r.q)}</span></div>
       <div><b>Grupo de Prioridad:</b> ${esc(r.grupoPrioridad)}</div>
@@ -2243,7 +2244,7 @@ function initEvents() {
       'Condición Integral': r.condicionCruzada,
       'Estado Entrega': r.estadoEntrega,
       'Es Rechazado / No Aceptado': r.esRechazadoNoAceptado ? 'SI' : 'NO',
-      'SLA Superó 22d': (r.supero22Dias && !r.esRechazadoNoAceptado) ? 'SI (ACEPTADO)' : 'NO',
+      'SLA Superó 7d': (r.supero7Dias && !r.esRechazadoNoAceptado && !r.esServidorDesestimado) ? 'SI (ACEPTADO)' : 'NO',
       'Días Hábiles Transcurridos': r.diasHabiles !== null ? r.diasHabiles : '',
       'Fecha Entrega IBK': r.fechaEntrega,
       'Siglas': r.siglas,
