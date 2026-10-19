@@ -216,7 +216,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .badge-info { background: var(--c-blue-bg); color: var(--c-blue); border: 1px solid var(--c-blue); }
 .badge-neutral { background: #EFEFEF; color: #444; border: 1px solid #D5D5D5; }
 
-/* Chips individuales de auditoría */
 .chip-ctl {
   display: inline-flex;
   align-items: center;
@@ -298,6 +297,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     <div class="navlist">
       <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
       <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
+      <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
       <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
       <button class="navbtn" data-tab="grupos">Los 3 Grupos Prioritarios</button>
       <button class="navbtn" data-tab="regularizacion">¿Qué Falta Sanear?</button>
@@ -329,6 +329,16 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
             <span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span>
           </button>
           <div class="multi-dropdown hide" id="dropdownGrupos"></div>
+        </div>
+
+        <!-- FILTRO DE SISTEMA OPERATIVO: SOLO WINDOWS Y LINUX -->
+        <div class="sl">
+          <label>Sistema Operativo</label>
+          <select id="fSO">
+            <option value="__ALL__">Todos los Sistemas Operativos</option>
+            <option value="Windows">Windows</option>
+            <option value="Linux">Linux</option>
+          </select>
         </div>
 
         <div class="sl"><label>Ámbito Estatus</label>
@@ -455,6 +465,7 @@ const state = {
   filters: {
     q: '__ALL__',
     grupos: new Set(),
+    soFamilia: '__ALL__',
     ambito: 'SOLO_MIGRADOS',
     condicion: '__ALL__',
     nci: '__ALL__',
@@ -551,7 +562,6 @@ function normalizeData(rows) {
     const tktRaw = getVal('Ticket de Aprovisionamiento');
     const tktClean = tktRaw.replace(/\.0$/, '').replace(/_/g, '').trim();
 
-    // Desglose de tickets individuales (soporte para celdas combinadas '3642261 / 4052177')
     const tktParts = tktClean.split('/').map(p => p.trim()).filter(Boolean);
 
     const gMatches = [];
@@ -576,7 +586,17 @@ function normalizeData(rows) {
     const hostDestinoRaw = getVal('Hostname_Destino', 'Servidor Destino', 'Hostname Destino');
     const hostDestino = hostDestinoRaw ? hostDestinoRaw : servidor;
     const hostDestinoKey = norm(hostDestino);
+    const so = getVal('Sistema Operativo');
     const soDestino = getVal('Sistema Operativo_Destino', 'SO Destino');
+
+    // CLASIFICACIÓN DE S.O (WINDOWS / LINUX)
+    const soTexto = norm(soDestino || so);
+    let soFamilia = 'Otros';
+    if (soTexto.includes('windows')) {
+      soFamilia = 'Windows';
+    } else if (soTexto.includes('linux') || soTexto.includes('red hat') || soTexto.includes('rhel')) {
+      soFamilia = 'Linux';
+    }
 
     const etiqCat = getVal('Etiqueta (Categoria)', 'Etiqueta (Categoria) ');
     const estadoSubCat = getVal('Estado (Sub_Categoria)');
@@ -587,7 +607,6 @@ function normalizeData(rows) {
     const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong') || forecastEstado === 'Desestimado';
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
 
-    // REGLA ACTUALIZADA: 7 DÍAS HÁBILES (LUNES A VIERNES SIN FERIADOS PERÚ)
     const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
     const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
     const diasHabiles = calcularDiasHabiles(fechaEntregaObj);
@@ -652,7 +671,6 @@ function normalizeData(rows) {
     const mon = getVal('Monitoreo(UIM, OEM, GSMA)');
     const okMon = isControlOK(mon);
 
-    // Servidores desestimados están exentos y marcados como conformes por diseño
     const isServerCompliant = esServidorDesestimado || (okQualys && okAv && okRemSo && okParchado && okRemSub && okBkp && okMon);
 
     const controlesFaltantes = [];
@@ -711,8 +729,9 @@ function normalizeData(rows) {
       hostDestinoKey,
       ambiente: (getVal('Ambiente') || 'DES').toUpperCase().trim(),
       owner: getVal('Owner Kyndryl') || 'Sin Asignar',
-      so: getVal('Sistema Operativo'),
+      so,
       soDestino,
+      soFamilia,
       forecastEstado,
       esMigrado,
       ticketAprov: tktClean,
@@ -765,6 +784,9 @@ function applyFilters() {
       }
       return false;
     });
+  }
+  if (state.filters.soFamilia !== '__ALL__') {
+    pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
   }
   if (state.filters.condicion !== '__ALL__') {
     pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
@@ -919,6 +941,7 @@ function initFilters() {
   });
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
+  $('#fSO').onchange = e => { state.filters.soFamilia = e.target.value; applyFilters(); };
   $('#fAmbito').onchange = e => { state.filters.ambito = e.target.value; applyFilters(); };
   $('#fCondicion').onchange = e => { state.filters.condicion = e.target.value; applyFilters(); };
   $('#fNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
@@ -928,12 +951,14 @@ function initFilters() {
     state.filters = {
       q: '__ALL__',
       grupos: new Set(allGrupos.map(g => g.key)),
+      soFamilia: '__ALL__',
       ambito: 'SOLO_MIGRADOS',
       condicion: '__ALL__',
       nci: '__ALL__',
       entrega: '__ALL__',
       ambientes: new Set(allAmbs)
     };
+    $('#fSO').value = '__ALL__';
     $('#fAmbito').value = 'SOLO_MIGRADOS';
     $('#fCondicion').value = '__ALL__';
     chkGrupoAll.checked = true;
@@ -947,7 +972,7 @@ function initFilters() {
   };
 }
 
-// CÓMPUTO INDIVIDUAL DE LOS 126 TICKETS (DESGLOSA CELDAS COMBINADAS)
+// CÓMPUTO DE TICKETS INDIVIDUALES
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
@@ -1161,6 +1186,7 @@ function renderCockpit() {
 
   const tktAllMap = computeTicketsMap(v);
   const uniqueTkts = Object.keys(tktAllMap);
+  const totTkts = uniqueTkts.length || 1;
 
   const matrizTktsCounts = matrizCodigos.map(code => {
     return uniqueTkts.filter(t => {
@@ -1173,6 +1199,10 @@ function renderCockpit() {
   const compStatusData = {
     'Compliance (100% OK o N/A)': compOk,
     'Con Brecha Técnica': tot - compOk
+  };
+  const compTktsData = {
+    'Compliance (100% OK o N/A)': uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica === 0).length,
+    'Con Brecha Técnica': uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica > 0).length
   };
 
   const controls = [
@@ -1193,6 +1223,12 @@ function renderCockpit() {
 
   const entregaCounts = {};
   dedup.forEach(r => { entregaCounts[r.estadoEntrega] = (entregaCounts[r.estadoEntrega] || 0) + 1; });
+  const entregaTktsCounts = {};
+  uniqueTkts.forEach(t => {
+    const primer = tktAllMap[t].servidores[0];
+    const est = primer ? primer.estadoEntrega : 'Otros';
+    entregaTktsCounts[est] = (entregaTktsCounts[est] || 0) + 1;
+  });
 
   const tktsObsCount = uniqueTkts.filter(t => tktAllMap[t].tieneObsTicket).length;
   const tktsGACount = uniqueTkts.filter(t => tktAllMap[t].esPendienteGA).length;
@@ -1201,6 +1237,11 @@ function renderCockpit() {
     'Pendiente Validación G.A': tktsGACount,
     'Sin Observación (Cerrado)': uniqueTkts.length - tktsObsCount - tktsGACount
   };
+  const obsServData = {
+    'Con Observación / Desvío': dedup.filter(r => r.tieneObservacionAprov).length,
+    'Pendiente Validación G.A': dedup.filter(r => r.esPendienteGA).length,
+    'Sin Observación (Cerrado)': dedup.filter(r => r.ticketSinObservacion).length
+  };
 
   $('#tabBody').innerHTML = `
     <div class="row r-2">
@@ -1208,7 +1249,7 @@ function renderCockpit() {
         <div class="th">
           <div>
             <h3>Matriz de Saneamiento: Servidor Compliance vs Ticket Aprov.</h3>
-            <div class="sub">Haz clic en cualquier cuadrante para filtrar el detalle en el inventario</div>
+            <div class="sub">Pasa el cursor para ver cantidad de servidores y tickets de cada estado</div>
           </div>
         </div>
         <div class="cbox"><canvas id="cMatrizCruzada" style="cursor:pointer;"></canvas></div>
@@ -1257,7 +1298,7 @@ function renderCockpit() {
         <div class="th">
           <div>
             <h3>Estado de Entrega del Servidor a IBK (SLA 7 Días Útiles)</h3>
-            <div class="sub">Entregado/Aceptado vs No Aceptado vs Pendiente de entrega</div>
+            <div class="sub">Pasa el cursor para ver desglose de servidores y tickets</div>
           </div>
         </div>
         <div class="cbox"><canvas id="cEntrega"></canvas></div>
@@ -1265,11 +1306,28 @@ function renderCockpit() {
     </div>
   `;
 
+  // 1. Dona: Matriz de Saneamiento (Tooltip con Servidores y Tickets)
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
     data: { labels: matrizLabels, datasets: [{ data: matrizCounts, backgroundColor: matrizColors }] },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } },
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const idx = ctx.dataIndex;
+              const servCount = ctx.raw;
+              const tktCount = matrizTktsCounts[idx];
+              return [
+                ` ${ctx.label}`,
+                ` • Servidores Destino: ${servCount} (${pct(servCount, tot)})`,
+                ` • Tickets Aprov. Únicos: ${tktCount} (${pct(tktCount, totTkts)})`
+              ];
+            }
+          }
+        }
+      },
       onClick: function(evt, elements) {
         if (!elements || !elements.length) return;
         const selectedCode = matrizCodigos[elements[0].index];
@@ -1285,16 +1343,54 @@ function renderCockpit() {
     }
   });
 
+  // 2. Dona: Tickets con Observación vs Sin Observación (Tooltip con Servidores y Tickets)
   state.charts.obsAprov = new Chart($('#cObsAprov'), {
     type: 'doughnut',
     data: { labels: Object.keys(obsTicketData), datasets: [{ data: Object.values(obsTicketData), backgroundColor: ['#BA1A1A', '#546E7A', '#107C41'] }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    options: {
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const lbl = ctx.label;
+              const tCount = ctx.raw;
+              const sCount = obsServData[lbl] || 0;
+              return [
+                ` ${lbl}`,
+                ` • Tickets Aprov.: ${tCount} (${pct(tCount, totTkts)})`,
+                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`
+              ];
+            }
+          }
+        }
+      }
+    }
   });
 
+  // 3. Dona: Compliance Técnico (Tooltip con Servidores y Tickets)
   state.charts.complianceDoughnut = new Chart($('#cComplianceDoughnut'), {
     type: 'doughnut',
     data: { labels: Object.keys(compStatusData), datasets: [{ data: Object.values(compStatusData), backgroundColor: ['#107C41', '#BA1A1A'] }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    options: {
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const lbl = ctx.label;
+              const sCount = ctx.raw;
+              const tCount = compTktsData[lbl] || 0;
+              return [
+                ` ${lbl}`,
+                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`,
+                ` • Tickets Asociados: ${tCount} (${pct(tCount, totTkts)})`
+              ];
+            }
+          }
+        }
+      }
+    }
   });
 
   state.charts.controls = new Chart($('#cControls'), {
@@ -1319,10 +1415,29 @@ function renderCockpit() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
+  // 4. Dona: Estado de Entrega (Tooltip con Servidores y Tickets)
   state.charts.entrega = new Chart($('#cEntrega'), {
     type: 'doughnut',
     data: { labels: Object.keys(entregaCounts), datasets: [{ data: Object.values(entregaCounts), backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454'] }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    options: {
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const lbl = ctx.label;
+              const sCount = ctx.raw;
+              const tCount = entregaTktsCounts[lbl] || 0;
+              return [
+                ` ${lbl}`,
+                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`,
+                ` • Tickets Asociados: ${tCount} (${pct(tCount, totTkts)})`
+              ];
+            }
+          }
+        }
+      }
+    }
   });
 }
 
@@ -1337,13 +1452,31 @@ function renderEntregables() {
       return false;
     });
   }
+  if (state.filters.soFamilia !== '__ALL__') {
+    pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
+  }
 
   const ticketsData = computeTicketsEntregables(pool);
   const totTickets = ticketsData.length || 1;
+  const dedupServs = dedupeByDestServer(pool);
+  const totServersCount = dedupServs.length || 1;
 
   const cantEntregables = ticketsData.filter(t => t.codigo === 'ENTREGABLE').length;
   const cantNoEntregables = ticketsData.filter(t => t.codigo === 'NO_ENTREGABLE').length;
   const cantDesestimados = ticketsData.filter(t => t.codigo === 'DESESTIMADO').length;
+
+  const servEntregables = dedupServs.filter(r => {
+    const tkt = ticketsData.find(t => t.ticket === r.ticketAprov);
+    return tkt && tkt.codigo === 'ENTREGABLE';
+  }).length;
+  const servNoEntregables = dedupServs.filter(r => {
+    const tkt = ticketsData.find(t => t.ticket === r.ticketAprov);
+    return tkt && tkt.codigo === 'NO_ENTREGABLE';
+  }).length;
+  const servDesestimados = dedupServs.filter(r => {
+    const tkt = ticketsData.find(t => t.ticket === r.ticketAprov);
+    return tkt && tkt.codigo === 'DESESTIMADO';
+  }).length;
 
   const pctEntregable = pct(cantEntregables, totTickets);
   const pctNoEntregable = pct(cantNoEntregables, totTickets);
@@ -1387,7 +1520,7 @@ function renderEntregables() {
         <div class="th">
           <div>
             <h3>Distribución de Condición de Entrega por Ticket</h3>
-            <div class="sub">Total analizado: ${fmt(totTickets)} tickets (${cantEntregables} Entregables + ${cantNoEntregables} No Entregables + ${cantDesestimados} Desestimados)</div>
+            <div class="sub">Pasa el cursor sobre la dona para ver cantidad de tickets y servidores</div>
           </div>
         </div>
         <div class="cbox"><canvas id="cEntregablesDoughnut"></canvas></div>
@@ -1442,13 +1575,33 @@ function renderEntregables() {
     </div>
   `;
 
+  // 5. Dona: Entregables vs No Entregables (Tooltip con Tickets y Servidores)
   state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
     type: 'doughnut',
     data: {
       labels: ['Entregable (100% Limpio)', 'No Entregable (Con Brecha/Obs)', 'Desestimado'],
       datasets: [{ data: [cantEntregables, cantNoEntregables, cantDesestimados], backgroundColor: ['#107C41', '#BA1A1A', '#757575'] }]
     },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    options: {
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const idx = ctx.dataIndex;
+              const tCount = ctx.raw;
+              const sCounts = [servEntregables, servNoEntregables, servDesestimados];
+              const sCount = sCounts[idx] || 0;
+              return [
+                ` ${ctx.label}`,
+                ` • Tickets Aprov.: ${tCount} (${pct(tCount, totTickets)})`,
+                ` • Servidores Destino: ${sCount} (${pct(sCount, totServersCount)})`
+              ];
+            }
+          }
+        }
+      }
+    }
   });
 
   state.charts.entregablesQ = new Chart($('#cEntregablesQ'), {
@@ -1516,6 +1669,247 @@ function renderEntregables() {
   $('#selFiltroTktEstado').onchange = filterTktTable;
 }
 
+// -----------------------------------------------------------------------------------
+// NUEVA PESTAÑA: 🛡️ PENDIENTES DE HARDENING & COMPLIANCE
+// -----------------------------------------------------------------------------------
+function renderHardening() {
+  const v = state.view;
+  const dedup = dedupeByDestServer(v);
+  const tot = dedup.length || 1;
+
+  // Servidores activos no desestimados
+  const activos = dedup.filter(r => !r.esServidorDesestimado);
+  const totActivos = activos.length || 1;
+
+  const pendHardSO = activos.filter(r => !r.okRemSo);
+  const pendHardSub = activos.filter(r => !r.okRemSub);
+  const pendParchado = activos.filter(r => !r.okParchado);
+  const conCualquierBrecha = activos.filter(r => !r.isServerCompliant);
+
+  // Tickets que están bloqueados exclusivamente por brechas técnicas
+  const tktAllMap = computeTicketsMap(v);
+  const tktsBloqueados = Object.keys(tktAllMap).filter(t => tktAllMap[t].conBrechaTecnica > 0);
+
+  // Distribución de pendientes de Hardening S.O por Q
+  const qs = uniq(state.raw.map(r => r.q)).sort();
+  const qLabels = [];
+  const qHardSoData = [];
+  const qHardSubData = [];
+  qs.forEach(q => {
+    const sInQ = activos.filter(r => r.q === q);
+    if (sInQ.length > 0) {
+      qLabels.push(q);
+      qHardSoData.push(sInQ.filter(r => !r.okRemSo).length);
+      qHardSubData.push(sInQ.filter(r => !r.okRemSub).length);
+    }
+  });
+
+  $('#tabBody').innerHTML = `
+    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));">
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+        <div class="lbl">Falta Hardening S.O</div>
+        <div class="val">${fmt(pendHardSO.length)} <small style="font-size:14px;font-weight:700">(${pct(pendHardSO.length, totActivos)})</small></div>
+        <div class="sub">Servidores activos con remediación S.O pendiente</div>
+      </div>
+      <div class="kpi-card warn" style="border-left:4px solid var(--c-warn);">
+        <div class="lbl">Falta Hardening Subsistema</div>
+        <div class="val">${fmt(pendHardSub.length)} <small style="font-size:14px;font-weight:700">(${pct(pendHardSub.length, totActivos)})</small></div>
+        <div class="sub">Servidores con remediación de componentes pendiente</div>
+      </div>
+      <div class="kpi-card warn" style="border-left:4px solid var(--c-purple);">
+        <div class="lbl">Falta Parchado de Seguridad</div>
+        <div class="val">${fmt(pendParchado.length)} <small style="font-size:14px;font-weight:700">(${pct(pendParchado.length, totActivos)})</small></div>
+        <div class="sub">Servidores sin parchado verificado</div>
+      </div>
+      <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
+        <div class="lbl">Tickets Bloqueados por Compliance</div>
+        <div class="val">${fmt(tktsBloqueados.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">No entregables por tener servidores con brecha</div>
+      </div>
+    </div>
+
+    <div class="row r-2">
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Pendientes de Hardening por Trimestre (Q)</h3>
+            <div class="sub">Volumen de remediaciones pendientes para desbloquear la entrega del paquete</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cHardeningQ"></canvas></div>
+      </div>
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Distribución de Brechas Técnicas a Resolver</h3>
+            <div class="sub">Total de servidores activos evaluados: ${fmt(totActivos)}</div>
+          </div>
+        </div>
+        <div class="cbox"><canvas id="cHardeningDoughnut"></canvas></div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="th" style="flex-wrap:wrap; gap:10px;">
+        <div>
+          <h3>Plan de Acción: Servidores que Requieren Hardening & Compliance</h3>
+          <div class="sub">Muestra la lista detallada de máquinas que impiden cerrar el ticket de aprovisionamiento</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="tbSearchHard" placeholder="Buscar servidor, ticket o S.O..." style="min-width:230px;">
+          <select id="selFiltroTipoBrecha" style="min-width:200px;">
+            <option value="ALL_BRECHAS">Cualquier Brecha (${conCualquierBrecha.length})</option>
+            <option value="FALTA_SO">Falta Hardening S.O (${pendHardSO.length})</option>
+            <option value="FALTA_SUB">Falta Hardening Subsistema (${pendHardSub.length})</option>
+            <option value="FALTA_PARCH">Falta Parchado (${pendParchado.length})</option>
+            <option value="TODO_OK">Conformes 100% (${activos.length - conCualquierBrecha.length})</option>
+          </select>
+        </div>
+      </div>
+      <div class="tw" style="max-height: 520px;">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Servidor Destino</th>
+              <th>Servidor Origen</th>
+              <th>Ticket Aprov.</th>
+              <th>S.O. Familia</th>
+              <th>Ambiente</th>
+              <th>Q</th>
+              <th>Hardening S.O</th>
+              <th>Hardening Subsistema</th>
+              <th>Parchado</th>
+              <th>Otros Controles</th>
+              <th>Estado de Entrega</th>
+              <th>Acción Requerida / Faltante</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyHardening"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Gráfica de Barras de Hardening por Q
+  state.charts.hardeningQ = new Chart($('#cHardeningQ'), {
+    type: 'bar',
+    data: {
+      labels: qLabels,
+      datasets: [
+        { label: 'Falta Hardening S.O', data: qHardSoData, backgroundColor: '#BA1A1A', borderRadius: 4 },
+        { label: 'Falta Hardening Sub', data: qHardSubData, backgroundColor: '#D9730D', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { stacked: false }, y: { beginAtZero: true } }
+    }
+  });
+
+  // Dona de Brechas con Tooltip de Servidores y Tickets
+  const brechaCounts = [
+    pendHardSO.length,
+    pendHardSub.length,
+    pendParchado.length,
+    activos.filter(r => !r.okQualys).length,
+    activos.filter(r => !r.okBkp).length
+  ];
+  const brechaLabels = ['Falta Hardening S.O', 'Falta Hardening Sub', 'Falta Parchado', 'Falta Qualys', 'Falta Backup'];
+
+  state.charts.hardeningDoughnut = new Chart($('#cHardeningDoughnut'), {
+    type: 'doughnut',
+    data: {
+      labels: brechaLabels,
+      datasets: [{
+        data: brechaCounts,
+        backgroundColor: ['#BA1A1A', '#D9730D', '#6A1B9A', '#0263E0', '#545454']
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const count = ctx.raw;
+              return ` ${ctx.label}: ${count} servidores (${pct(count, totActivos)})`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Render de filas de la tabla de Hardening
+  const paintHardRows = (list) => {
+    $('#tbodyHardening').innerHTML = list.slice(0, 300).map(r => `
+      <tr onclick="drillServer(${r._id})">
+        <td class="mono font-weight:700;color:var(--k-red);">${esc(r.hostDestino)}</td>
+        <td class="mono" style="color:var(--k-slate);">${esc(r.servidor)}</td>
+        <td class="mono font-weight:700;">${esc(r.ticketAprov)}</td>
+        <td><span class="badge badge-neutral">${esc(r.soFamilia)}</span></td>
+        <td><b>${esc(r.ambiente)}</b></td>
+        <td>${esc(r.q)}</td>
+        <td>
+          <span class="badge ${r.okRemSo ? 'badge-ok' : 'badge-alert'}">
+            ${isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'CONFORME' : 'PENDIENTE')}
+          </span>
+        </td>
+        <td>
+          <span class="badge ${r.okRemSub ? 'badge-ok' : 'badge-warn'}">
+            ${isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'CONFORME' : 'PENDIENTE')}
+          </span>
+        </td>
+        <td>
+          <span class="badge ${r.okParchado ? 'badge-ok' : 'badge-warn'}">
+            ${isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'CONFORME' : 'PENDIENTE')}
+          </span>
+        </td>
+        <td style="font-size:11px;">
+          Q:${r.okQualys ? '✅' : '❌'} | AV:${r.okAv ? '✅' : '❌'} | Bkp:${r.okBkp ? '✅' : '❌'} | Mon:${r.okMon ? '✅' : '❌'}
+        </td>
+        <td>
+          <span class="badge ${r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn')}">
+            ${esc(r.estadoEntrega)}
+          </span>
+        </td>
+        <td style="font-size:11.5px;font-weight:700;color:${r.isServerCompliant ? 'var(--c-ok)' : 'var(--c-alert)'};">
+          ${r.isServerCompliant ? '✅ Conforme (100% OK)' : `❌ Aplicar: ${esc(r.controlesFaltantes.join(', '))}`}
+        </td>
+      </tr>
+    `).join('') + (list.length > 300 ? `<tr><td colspan="12" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 servidores...</td></tr>` : '');
+  };
+
+  paintHardRows(conCualquierBrecha);
+
+  const filterHardTable = () => {
+    const qStr = norm($('#tbSearchHard').value);
+    const selTipo = $('#selFiltroTipoBrecha').value;
+
+    let filtered = activos;
+    if (selTipo === 'ALL_BRECHAS') filtered = conCualquierBrecha;
+    else if (selTipo === 'FALTA_SO') filtered = pendHardSO;
+    else if (selTipo === 'FALTA_SUB') filtered = pendHardSub;
+    else if (selTipo === 'FALTA_PARCH') filtered = pendParchado;
+    else if (selTipo === 'TODO_OK') filtered = activos.filter(r => r.isServerCompliant);
+
+    if (qStr) {
+      filtered = filtered.filter(r => 
+        norm(r.hostDestino).includes(qStr) || 
+        norm(r.servidor).includes(qStr) || 
+        norm(r.ticketAprov).includes(qStr) ||
+        norm(r.soFamilia).includes(qStr) ||
+        norm(r.q).includes(qStr) ||
+        r.controlesFaltantes.some(c => norm(c).includes(qStr))
+      );
+    }
+    paintHardRows(filtered);
+  };
+
+  $('#tbSearchHard').oninput = filterHardTable;
+  $('#selFiltroTipoBrecha').onchange = filterHardTable;
+}
+
 function abrirAuditoriaTicket(tktNum) {
   const rowsTicket = state.raw.filter(r => {
     return (r.tktParts && r.tktParts.includes(tktNum)) || r.ticketAprov === tktNum;
@@ -1559,6 +1953,7 @@ function abrirAuditoriaTicket(tktNum) {
           <tr>
             <th>Servidor Destino</th>
             <th>Servidor Origen</th>
+            <th>S.O. Familia</th>
             <th>Ambiente</th>
             <th>Estado Entrega</th>
             <th>Compliance</th>
@@ -1573,6 +1968,7 @@ function abrirAuditoriaTicket(tktNum) {
             <tr>
               <td class="mono font-weight:700;color:var(--k-red);">${esc(s.hostDestino)}</td>
               <td class="mono" style="color:var(--k-slate);">${esc(s.servidor)}</td>
+              <td><b>${esc(s.soFamilia)}</b></td>
               <td><b>${esc(s.ambiente)}</b></td>
               <td>
                 <span class="badge ${esDesest ? 'badge-neutral' : (s.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(s.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn'))}">
@@ -1978,6 +2374,7 @@ function renderDetalle() {
               <th>Siglas</th>
               <th>Servidor (Origen)</th>
               <th>Servidor Destino</th>
+              <th>S.O. Familia</th>
               <th>Condición Integral</th>
               <th>Estado Entrega</th>
               <th>SLA Entrega (7d)</th>
@@ -2010,6 +2407,7 @@ function renderDetalle() {
         <td class="mono font-weight:700;">${esc(r.siglas)}</td>
         <td class="mono" style="color:var(--k-slate);">${esc(r.servidor)}</td>
         <td class="mono font-weight:700;color:var(--k-red);">${esc(r.hostDestino)}</td>
+        <td><span class="badge badge-neutral"><b>${esc(r.soFamilia)}</b></span></td>
         <td>
           <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">
             ${esc(r.condicionCruzada)}
@@ -2051,7 +2449,7 @@ function renderDetalle() {
         <td class="num font-weight:700;color:${r.isServerCompliant?'var(--c-ok)':'var(--c-alert)'};">${r.isServerCompliant ? '✅ OK' : '❌ PENDIENTE'}</td>
         <td style="font-weight:600;font-size:11px;color:${r.tieneNci?'var(--k-red)':'inherit'};">${esc(r.nci || '—')}</td>
       </tr>
-    `).join('') + (rows.length > 300 ? `<tr><td colspan="21" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
+    `).join('') + (rows.length > 300 ? `<tr><td colspan="22" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 registros...</td></tr>` : '');
   };
 
   paintRows(v);
@@ -2068,7 +2466,7 @@ function renderDetalle() {
       filtered = filtered.filter(r => 
         norm(r.servidor).includes(q) || norm(r.hostDestino).includes(q) ||
         norm(r.siglas).includes(q) || norm(r.ticketAprov).includes(q) || 
-        norm(r.nci).includes(q) || norm(r.owner).includes(q) || 
+        norm(r.soFamilia).includes(q) || norm(r.nci).includes(q) || norm(r.owner).includes(q) || 
         norm(r.estadoEntrega).includes(q) || norm(r.condicionCruzada).includes(q) ||
         norm(r.queFalta).includes(q)
       );
@@ -2103,6 +2501,7 @@ function drillServer(id) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
       <div><b>Servidor Destino:</b> <span class="mono" style="color:var(--k-red);font-weight:700;">${esc(r.hostDestino)}</span></div>
       <div><b>Servidor Origen:</b> <span class="mono">${esc(r.servidor)}</span></div>
+      <div><b>Sistema Operativo:</b> <b>${esc(r.soFamilia)}</b> (${esc(r.soDestino || r.so || '—')})</div>
       <div><b>Condición Integral:</b> <span class="badge ${r.condicionCodigo==='AMBOS_OK'?'badge-ok':(r.condicionCodigo==='PEND_GA'?'badge-ga':(r.condicionCodigo==='DOBLE_BRECHA'?'badge-alert':'badge-warn'))}">${esc(r.condicionCruzada)}</span></div>
       <div><b>Estado de Entrega:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.estadoEntrega==='Entregado / Aceptado'?'badge-ok':(r.estadoEntrega==='No Aceptado / Observado'?'badge-alert':'badge-warn'))}">${esc(r.estadoEntrega)}</span></div>
       <div><b>SLA 7 Días Útiles:</b> <span class="badge ${esDesest ? 'badge-neutral' : (r.esRechazadoNoAceptado?'badge-alert':(r.supero7Dias?'badge-ok':'badge-warn'))}">${esDesest ? '⚪ N/A (Desestimado)' : slaTexto}</span></div>
@@ -2157,6 +2556,7 @@ function render() {
   const views = {
     cockpit: renderCockpit,
     entregables: renderEntregables,
+    hardening: renderHardening,
     qbreakdown: renderQBreakdown,
     grupos: renderGrupos,
     regularizacion: renderRegularizacion,
@@ -2171,6 +2571,7 @@ function render() {
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
+    hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
     grupos: 'Los 3 Grupos Prioritarios',
     regularizacion: '¿Qué Falta Sanear? · Regularización',
@@ -2225,8 +2626,9 @@ function initEvents() {
     if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
   };
 
-  $$('.navbtn').forEach(btn => {     btn.onclick = () => {$$
-('.navbtn').forEach(b => b.classList.remove('on'));
+  $$('.navbtn').forEach(btn => {
+    btn.onclick = () => {
+      $$('.navbtn').forEach(b => b.classList.remove('on'));
       btn.classList.add('on');
       state.tab = btn.dataset.tab;
       render();
@@ -2241,6 +2643,7 @@ function initEvents() {
       'Grupo': r.grupoPrioridad,
       'Servidor Origen': r.servidor,
       'Servidor Destino': r.hostDestino,
+      'S.O. Familia': r.soFamilia,
       'Condición Integral': r.condicionCruzada,
       'Estado Entrega': r.estadoEntrega,
       'Es Rechazado / No Aceptado': r.esRechazadoNoAceptado ? 'SI' : 'NO',
