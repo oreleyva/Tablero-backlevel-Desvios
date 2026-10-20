@@ -341,12 +341,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
           </select>
         </div>
 
-        <div class="sl"><label>Ámbito Estatus</label>
-          <select id="fAmbito">
-            <option value="SOLO_MIGRADOS" selected>Solo Migrados (Enfoque de Entrega)</option>
-            <option value="ALL">Todo el Consolidador (126 Tickets)</option>
-          </select>
-        </div>
         <div class="sl"><label>Condición Integral</label>
           <select id="fCondicion">
             <option value="__ALL__">Todos los Estados</option>
@@ -456,7 +450,6 @@ const state = {
     q: '__ALL__',
     grupos: new Set(),
     soFamilia: '__ALL__',
-    ambito: 'SOLO_MIGRADOS',
     condicion: '__ALL__',
     nci: '__ALL__',
     entrega: '__ALL__',
@@ -751,9 +744,6 @@ function normalizeData(rows) {
 
 function applyFilters() {
   let pool = state.raw;
-  if (state.filters.ambito === 'SOLO_MIGRADOS') {
-    pool = pool.filter(r => r.esMigrado);
-  }
   if (state.filters.q !== '__ALL__') {
     pool = pool.filter(r => r.q === state.filters.q);
   }
@@ -780,7 +770,7 @@ function applyFilters() {
 }
 
 function initFilters() {
-  const base = state.raw.filter(r => r.esMigrado);
+  const base = state.raw;
   const fillSelect = (id, vals, cur) => {
     const sel = $(id);
     sel.innerHTML = `<option value="__ALL__">Todos (${vals.length})</option>` +
@@ -920,7 +910,6 @@ function initFilters() {
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
   $('#fSO').onchange = e => { state.filters.soFamilia = e.target.value; applyFilters(); };
-  $('#fAmbito').onchange = e => { state.filters.ambito = e.target.value; applyFilters(); };
   $('#fCondicion').onchange = e => { state.filters.condicion = e.target.value; applyFilters(); };
   $('#fNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
   $('#fEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
@@ -930,14 +919,12 @@ function initFilters() {
       q: '__ALL__',
       grupos: new Set(allGruposKeys),
       soFamilia: '__ALL__',
-      ambito: 'SOLO_MIGRADOS',
       condicion: '__ALL__',
       nci: '__ALL__',
       entrega: '__ALL__',
       ambientes: new Set(allAmbs)
     };
     $('#fSO').value = '__ALL__';
-    $('#fAmbito').value = 'SOLO_MIGRADOS';
     $('#fCondicion').value = '__ALL__';
     chkGrupoAll.checked = true;
     chkGrupos.forEach(c => { c.checked = true; });
@@ -950,7 +937,7 @@ function initFilters() {
   };
 }
 
-// CÓMPUTO RIGUROSO DE TICKETS (CONSISTENTE CON LA TABLA DINÁMICA DE EXCEL)
+// CÓMPUTO DE TICKETS
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
@@ -1149,37 +1136,33 @@ function renderCockpit() {
   const cSoloTktOk = dedup.filter(r => r.condicionCodigo === 'SOLO_TKT_OK').length;
   const cDobleBrecha = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
 
-  const matrizCodigos = ['AMBOS_OK', 'PEND_GA', 'SOLO_SERV_OK', 'SOLO_TKT_OK', 'DOBLE_BRECHA'];
-  const matrizLabels = [
-    '⭐ Ambos OK (Saneamiento 100%)',
-    '⏳ Subsanado - Pendiente Validación G.A',
-    '⚠️ Servidor OK / Ticket Obs.',
-    '⚠️ Ticket OK / Servidor No Comp.',
-    '🚨 Doble Brecha (Ambos Mal)'
+  const allMatriz = [
+    { code: 'AMBOS_OK', label: '⭐ Ambos OK (Saneamiento 100%)', count: cAmbosOk, color: '#107C41' },
+    { code: 'PEND_GA', label: '⏳ Subsanado - Pendiente Validación G.A', count: cPendGA, color: '#546E7A' },
+    { code: 'SOLO_SERV_OK', label: '⚠️ Servidor OK / Ticket Obs.', count: cSoloServOk, color: '#D9730D' },
+    { code: 'SOLO_TKT_OK', label: '⚠️ Ticket OK / Servidor No Comp.', count: cSoloTktOk, color: '#0263E0' },
+    { code: 'DOBLE_BRECHA', label: '🚨 Doble Brecha (Ambos Mal)', count: cDobleBrecha, color: '#BA1A1A' }
   ];
-  const matrizCounts = [cAmbosOk, cPendGA, cSoloServOk, cSoloTktOk, cDobleBrecha];
-  const matrizColors = ['#107C41', '#546E7A', '#D9730D', '#0263E0', '#BA1A1A'];
+
+  // FILTRADO DINÁMICO: SOLO MOSTRAR CATEGORÍAS CON COUNT > 0 EN EL GRÁFICO Y EN LA LEYENDA
+  const activeMatriz = allMatriz.filter(x => x.count > 0);
 
   const tktAllMap = computeTicketsMap(v);
   const uniqueTkts = Object.keys(tktAllMap);
   const totTkts = uniqueTkts.length || 1;
 
-  const matrizTktsCounts = matrizCodigos.map(code => {
+  const activeMatrizTkts = activeMatriz.map(item => {
     return uniqueTkts.filter(t => {
       const servs = tktAllMap[t].servidores;
-      return servs.some(r => r.condicionCodigo === code);
+      return servs.some(r => r.condicionCodigo === item.code);
     }).length;
   });
 
   const compOk = dedup.filter(r => r.isServerCompliant).length;
-  const compStatusData = {
-    'Compliance (100% OK o N/A)': compOk,
-    'Con Brecha Técnica': tot - compOk
-  };
-  const compTktsData = {
-    'Compliance (100% OK o N/A)': uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica === 0).length,
-    'Con Brecha Técnica': uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica > 0).length
-  };
+  const allCompData = [
+    { label: 'Compliance (100% OK o N/A)', sCount: compOk, tCount: uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica === 0).length, color: '#107C41' },
+    { label: 'Con Brecha Técnica', sCount: tot - compOk, tCount: uniqueTkts.filter(t => tktAllMap[t].conBrechaTecnica > 0).length, color: '#BA1A1A' }
+  ].filter(x => x.sCount > 0);
 
   const controls = [
     { name: 'Antivirus', ok: dedup.filter(r => r.okAv).length },
@@ -1197,27 +1180,43 @@ function renderCockpit() {
     qCounts[q] = distinctDestServers(v.filter(r => r.q === q));
   });
 
-  const entregaCounts = {};
-  dedup.forEach(r => { entregaCounts[r.estadoEntrega] = (entregaCounts[r.estadoEntrega] || 0) + 1; });
-  const entregaTktsCounts = {};
+  const rawEntregaCounts = {};
+  dedup.forEach(r => { rawEntregaCounts[r.estadoEntrega] = (rawEntregaCounts[r.estadoEntrega] || 0) + 1; });
+  const rawEntregaTkts = {};
   uniqueTkts.forEach(t => {
     const primer = tktAllMap[t].servidores[0];
     const est = primer ? primer.estadoEntrega : 'Otros';
-    entregaTktsCounts[est] = (entregaTktsCounts[est] || 0) + 1;
+    rawEntregaTkts[est] = (rawEntregaTkts[est] || 0) + 1;
   });
+
+  const entregaColorsMap = {
+    'Entregado / Aceptado': '#107C41',
+    'No Aceptado / Observado': '#BA1A1A',
+    'Pendiente de entrega': '#D9730D',
+    'Desestimado': '#545454',
+    'Reprogramado': '#0263E0'
+  };
+
+  const activeEntregaData = Object.keys(rawEntregaCounts)
+    .filter(k => rawEntregaCounts[k] > 0)
+    .map(k => ({
+      label: k,
+      sCount: rawEntregaCounts[k],
+      tCount: rawEntregaTkts[k] || 0,
+      color: entregaColorsMap[k] || '#888888'
+    }));
 
   const tktsObsCount = uniqueTkts.filter(t => tktAllMap[t].tieneObsTicket).length;
   const tktsGACount = uniqueTkts.filter(t => tktAllMap[t].esPendienteGA).length;
-  const obsTicketData = {
-    'Con Observación / Desvío': tktsObsCount,
-    'Pendiente Validación G.A': tktsGACount,
-    'Sin Observación (Cerrado)': uniqueTkts.length - tktsObsCount - tktsGACount
-  };
-  const obsServData = {
-    'Con Observación / Desvío': dedup.filter(r => r.tieneObservacionAprov).length,
-    'Pendiente Validación G.A': dedup.filter(r => r.esPendienteGA).length,
-    'Sin Observación (Cerrado)': dedup.filter(r => r.ticketSinObservacion).length
-  };
+  const sObsCount = dedup.filter(r => r.tieneObservacionAprov).length;
+  const sGACount = dedup.filter(r => r.esPendienteGA).length;
+  const sOkCount = dedup.filter(r => r.ticketSinObservacion).length;
+
+  const allObsData = [
+    { label: 'Con Observación / Desvío', tCount: tktsObsCount, sCount: sObsCount, color: '#BA1A1A' },
+    { label: 'Pendiente Validación G.A', tCount: tktsGACount, sCount: sGACount, color: '#546E7A' },
+    { label: 'Sin Observación (Cerrado)', tCount: uniqueTkts.length - tktsObsCount - tktsGACount, sCount: sOkCount, color: '#107C41' }
+  ].filter(x => x.tCount > 0 || x.sCount > 0);
 
   $('#tabBody').innerHTML = `
     <div class="row r-2">
@@ -1282,18 +1281,27 @@ function renderCockpit() {
     </div>
   `;
 
+  // 1. Dona: Matriz de Saneamiento (Leyenda y segmentos limpios sin categorías en 0)
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
-    data: { labels: matrizLabels, datasets: [{ data: matrizCounts, backgroundColor: matrizColors }] },
+    data: {
+      labels: activeMatriz.map(x => x.label),
+      datasets: [{
+        data: activeMatriz.map(x => x.count),
+        backgroundColor: activeMatriz.map(x => x.color)
+      }]
+    },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
             label: function(ctx) {
               const idx = ctx.dataIndex;
               const servCount = ctx.raw;
-              const tktCount = matrizTktsCounts[idx];
+              const tktCount = activeMatrizTkts[idx];
               return [
                 ` ${ctx.label}`,
                 ` • Servidores Destino: ${servCount} (${pct(servCount, tot)})`,
@@ -1305,7 +1313,7 @@ function renderCockpit() {
       },
       onClick: function(evt, elements) {
         if (!elements || !elements.length) return;
-        const selectedCode = matrizCodigos[elements[0].index];
+        const selectedCode = activeMatriz[elements[0].index].code;
         state.filters.condicion = selectedCode;
         $('#fCondicion').value = selectedCode;
         applyFilters();
@@ -1318,22 +1326,29 @@ function renderCockpit() {
     }
   });
 
+  // 2. Dona: Tickets con Observación vs Sin Observación
   state.charts.obsAprov = new Chart($('#cObsAprov'), {
     type: 'doughnut',
-    data: { labels: Object.keys(obsTicketData), datasets: [{ data: Object.values(obsTicketData), backgroundColor: ['#BA1A1A', '#546E7A', '#107C41'] }] },
+    data: {
+      labels: allObsData.map(x => x.label),
+      datasets: [{
+        data: allObsData.map(x => x.tCount),
+        backgroundColor: allObsData.map(x => x.color)
+      }]
+    },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
             label: function(ctx) {
-              const lbl = ctx.label;
-              const tCount = ctx.raw;
-              const sCount = obsServData[lbl] || 0;
+              const item = allObsData[ctx.dataIndex];
               return [
-                ` ${lbl}`,
-                ` • Tickets Aprov.: ${tCount} (${pct(tCount, totTkts)})`,
-                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`
+                ` ${item.label}`,
+                ` • Tickets Aprov.: ${item.tCount} (${pct(item.tCount, totTkts)})`,
+                ` • Servidores Destino: ${item.sCount} (${pct(item.sCount, tot)})`
               ];
             }
           }
@@ -1342,22 +1357,29 @@ function renderCockpit() {
     }
   });
 
+  // 3. Dona: Compliance Técnico
   state.charts.complianceDoughnut = new Chart($('#cComplianceDoughnut'), {
     type: 'doughnut',
-    data: { labels: Object.keys(compStatusData), datasets: [{ data: Object.values(compStatusData), backgroundColor: ['#107C41', '#BA1A1A'] }] },
+    data: {
+      labels: allCompData.map(x => x.label),
+      datasets: [{
+        data: allCompData.map(x => x.sCount),
+        backgroundColor: allCompData.map(x => x.color)
+      }]
+    },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
             label: function(ctx) {
-              const lbl = ctx.label;
-              const sCount = ctx.raw;
-              const tCount = compTktsData[lbl] || 0;
+              const item = allCompData[ctx.dataIndex];
               return [
-                ` ${lbl}`,
-                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`,
-                ` • Tickets Asociados: ${tCount} (${pct(tCount, totTkts)})`
+                ` ${item.label}`,
+                ` • Servidores Destino: ${item.sCount} (${pct(item.sCount, tot)})`,
+                ` • Tickets Asociados: ${item.tCount} (${pct(item.tCount, totTkts)})`
               ];
             }
           }
@@ -1388,22 +1410,29 @@ function renderCockpit() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
+  // 4. Dona: Estado de Entrega
   state.charts.entrega = new Chart($('#cEntrega'), {
     type: 'doughnut',
-    data: { labels: Object.keys(entregaCounts), datasets: [{ data: Object.values(entregaCounts), backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454'] }] },
+    data: {
+      labels: activeEntregaData.map(x => x.label),
+      datasets: [{
+        data: activeEntregaData.map(x => x.sCount),
+        backgroundColor: activeEntregaData.map(x => x.color)
+      }]
+    },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
             label: function(ctx) {
-              const lbl = ctx.label;
-              const sCount = ctx.raw;
-              const tCount = entregaTktsCounts[lbl] || 0;
+              const item = activeEntregaData[ctx.dataIndex];
               return [
-                ` ${lbl}`,
-                ` • Servidores Destino: ${sCount} (${pct(sCount, tot)})`,
-                ` • Tickets Asociados: ${tCount} (${pct(tCount, totTkts)})`
+                ` ${item.label}`,
+                ` • Servidores Destino: ${item.sCount} (${pct(item.sCount, tot)})`,
+                ` • Tickets Asociados: ${item.tCount} (${pct(item.tCount, totTkts)})`
               ];
             }
           }
@@ -1542,26 +1571,35 @@ function renderEntregables() {
     </div>
   `;
 
+  // 5. Dona: Entregables vs No Entregables (Solo muestra categorías > 0)
+  const allEntregablesData = [
+    { label: 'Entregable (100% Limpio)', tCount: cantEntregables, sCount: servEntregables, color: '#107C41' },
+    { label: 'No Entregable (Con Brecha/Obs)', tCount: cantNoEntregables, sCount: servNoEntregables, color: '#BA1A1A' },
+    { label: 'Desestimado', tCount: cantDesestimados, sCount: servDesestimados, color: '#757575' }
+  ].filter(x => x.tCount > 0);
+
   state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
     type: 'doughnut',
     data: {
-      labels: ['Entregable (100% Limpio)', 'No Entregable (Con Brecha/Obs)', 'Desestimado'],
-      datasets: [{ data: [cantEntregables, cantNoEntregables, cantDesestimados], backgroundColor: ['#107C41', '#BA1A1A', '#757575'] }]
+      labels: allEntregablesData.map(x => x.label),
+      datasets: [{
+        data: allEntregablesData.map(x => x.tCount),
+        backgroundColor: allEntregablesData.map(x => x.color)
+      }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
             label: function(ctx) {
-              const idx = ctx.dataIndex;
-              const tCount = ctx.raw;
-              const sCounts = [servEntregables, servNoEntregables, servDesestimados];
-              const sCount = sCounts[idx] || 0;
+              const item = allEntregablesData[ctx.dataIndex];
               return [
-                ` ${ctx.label}`,
-                ` • Tickets Aprov.: ${tCount} (${pct(tCount, totTickets)})`,
-                ` • Servidores Destino: ${sCount} (${pct(sCount, totServersCount)})`
+                ` ${item.label}`,
+                ` • Tickets Aprov.: ${item.tCount} (${pct(item.tCount, totTickets)})`,
+                ` • Servidores Destino: ${item.sCount} (${pct(item.sCount, totServersCount)})`
               ];
             }
           }
@@ -1763,26 +1801,27 @@ function renderHardening() {
     }
   });
 
-  const brechaCounts = [
-    pendHardSO.length,
-    pendHardSub.length,
-    pendParchado.length,
-    activos.filter(r => !r.okQualys).length,
-    activos.filter(r => !r.okBkp).length
-  ];
-  const brechaLabels = ['Falta Hardening S.O', 'Falta Hardening Sub', 'Falta Parchado', 'Falta Qualys', 'Falta Backup'];
+  const allBrechasData = [
+    { label: 'Falta Hardening S.O', count: pendHardSO.length, color: '#BA1A1A' },
+    { label: 'Falta Hardening Sub', count: pendHardSub.length, color: '#D9730D' },
+    { label: 'Falta Parchado', count: pendParchado.length, color: '#6A1B9A' },
+    { label: 'Falta Qualys', count: activos.filter(r => !r.okQualys).length, color: '#0263E0' },
+    { label: 'Falta Backup', count: activos.filter(r => !r.okBkp).length, color: '#545454' }
+  ].filter(x => x.count > 0);
 
   state.charts.hardeningDoughnut = new Chart($('#cHardeningDoughnut'), {
     type: 'doughnut',
     data: {
-      labels: brechaLabels,
+      labels: allBrechasData.map(x => x.label),
       datasets: [{
-        data: brechaCounts,
-        backgroundColor: ['#BA1A1A', '#D9730D', '#6A1B9A', '#0263E0', '#545454']
+        data: allBrechasData.map(x => x.count),
+        backgroundColor: allBrechasData.map(x => x.color)
       }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false, plugins: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
@@ -2043,6 +2082,7 @@ function renderQBreakdown() {
   `;
 }
 
+// PESTAÑA DINÁMICA DE GRUPOS
 function renderGrupos() {
   const v = state.view;
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
@@ -2480,7 +2520,7 @@ function drillServer(id) {
         ${renderControlChip('Hardening S.O', r.remSo, r.okRemSo, '', esDesest)}
         ${renderControlChip('Parchado', r.parchado, r.okParchado, '', esDesest)}
         ${renderControlChip('Subsistema', r.remSub, r.okRemSub, '', esDesest)}
-        ${renderControlChip('Backup', r.bkp, r.okBkp, r.ticketBkp && r.ticketBkp !== 'Sin ticket' ? `Tkt: ${r.ticketBkp}` : '', esDesest)}
+        ${renderControlChip('Backup', r.bkp, r.okBkp, r.ticketBkp && r.ticketBkp !== 'Sin ticket' ? `Tkt: ${s.ticketBkp}` : '', esDesest)}
         ${renderControlChip('Monitoreo', r.mon, r.okMon, '', esDesest)}
       </div>
     </div>
@@ -2538,7 +2578,7 @@ function render() {
 
   const totServers = distinctDestServers(state.view);
   const totRows = state.view.length;
-  $('#viewSub').textContent = `${state.filters.ambito === 'SOLO_MIGRADOS' ? 'Solo servidores migrados' : 'Todo el universo'} · ${fmt(totServers)} servidores destino únicos (${fmt(totRows)} relaciones)`;
+  $('#viewSub').textContent = `${fmt(totServers)} servidores destino únicos (${fmt(totRows)} relaciones)`;
 }
 
 function boot(data) {
