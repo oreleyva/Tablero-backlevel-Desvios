@@ -277,7 +277,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
   <div class="gatebox">
     <div class="brand-k">kyndryl</div>
     <h2>Tablero de Saneamiento Integral & Compliance</h2>
-    <p>Consolidado por Servidor Destino (Hostname_Destino) — 126 Tickets Prioritarios</p>
+    <p>Consolidado por Servidor Destino (Hostname_Destino) — Gestión Dinámica por Columna "Grupo"</p>
     <div class="dz" id="dz">
       <div class="dz-title">Arrastra aquí el archivo Excel</div>
       <div class="dz-sub">o haz clic para buscar en tu equipo (ej. Consolidado_Desvios_Filtrado.xlsx)</div>
@@ -299,7 +299,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
       <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
       <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
-      <button class="navbtn" data-tab="grupos">Los 3 Grupos Prioritarios</button>
+      <button class="navbtn" data-tab="grupos">Distribución por Grupos</button>
       <button class="navbtn" data-tab="regularizacion">¿Qué Falta Sanear?</button>
       <button class="navbtn" data-tab="controles">Controles de Seguridad</button>
       <button class="navbtn" data-tab="nci">Gestión de NCI</button>
@@ -322,6 +322,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       <div class="filters-bar" id="filtersBar">
         <div class="sl"><label>Trimestre (Q - IBK)</label><select id="fQ"></select></div>
 
+        <!-- FILTRO DINÁMICO POR COLUMNA "GRUPO" -->
         <div class="sl">
           <label>Grupo Prioridad (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnGruposToggle">
@@ -331,7 +332,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
           <div class="multi-dropdown hide" id="dropdownGrupos"></div>
         </div>
 
-        <!-- FILTRO DE SISTEMA OPERATIVO: SOLO WINDOWS Y LINUX -->
         <div class="sl">
           <label>Sistema Operativo</label>
           <select id="fSO">
@@ -386,16 +386,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 
 <script>
 "use strict";
-
-const G1_LIST = [
-  "3642259","3980211","4014480","4014566","4015216","4082923","4098404","4102225",
-  "4102266","4104234","4106356","4106834","4015223","4015249","4019305","3943459",
-  "3946902","3980157","3988559","4085902","4086504","4086713","4086748","4086777",
-  "4092630","4092692","4101315","4106496","4099618","4103130"
-];
-
-const G2_LIST = ["3685704","3685705","3946892","3980373","4015230","4015244","4015371","4092683","4092684","3642261","4052177","3893957","3898034","3934912","3946934","3948651","3949657","3955647","3980225","3980337","3980344","3997203","4015215","4015622","4034542","4098425","4106836","4107193","4174589","4015366","4015900","4017290","4042833","3946894","4014898","4086650","4099201","4106419"];
-const G3_LIST = ["3642261","4052177","3898132","3934914","3938874","3940135","3941131","3942863","3946868","3946880","3946910","3947147","3948655","3972276","3977185","3977187","3978269","3980164","3980192","3980328","3980331","3980367","3997167","4025225","4034540","4034556","4034557","4042349","4086594","4137375","4137519","4141488","4141491","4141531","4142519","4142661","4142702","4147331","4149798","4152090","4152533","4153257","4154355","4157970","4158803","4158826","4159964","4159990","4159996","4160009","4160022","4160208","4161549","4161562","4164052","4164160","4164566","4164626","4169168","4102262"];
 
 const NCI_LABELS = {
   "10420737": "10420737 - Operaciones",
@@ -545,10 +535,6 @@ function destroyCharts() {
 }
 
 function normalizeData(rows) {
-  const normG1 = new Set(G1_LIST.map(x => x.trim()));
-  const normG2 = new Set(G2_LIST.map(x => x.trim()));
-  const normG3 = new Set(G3_LIST.map(x => x.trim()));
-
   return rows.map((r, i) => {
     const getVal = (...keys) => {
       for (const k of keys) {
@@ -561,15 +547,11 @@ function normalizeData(rows) {
     const q = getVal('Q - IBK', 'Q-IBK', 'Q') || 'Sin Q';
     const tktRaw = getVal('Ticket de Aprovisionamiento');
     const tktClean = tktRaw.replace(/\.0$/, '').replace(/_/g, '').trim();
-
     const tktParts = tktClean.split('/').map(p => p.trim()).filter(Boolean);
 
-    const gMatches = [];
-    if (tktParts.some(p => normG1.has(p))) gMatches.push('Grupo 01');
-    if (tktParts.some(p => normG2.has(p))) gMatches.push('Grupo 02');
-    if (tktParts.some(p => normG3.has(p))) gMatches.push('Grupo 03');
-
-    const grupoPrioridad = gMatches.length > 0 ? gMatches.join(' & ') : 'Fuera de Grupos';
+    // EXTRACCIÓN DINÁMICA DE LA COLUMNA "GRUPO"
+    const grupoExcel = getVal('Grupo', 'Grupo Prioridad', 'Grupo de Prioridad', 'Grupo_Prioridad', 'Grupos');
+    const grupoPrioridad = grupoExcel ? grupoExcel : 'Sin Grupo';
 
     const forecastRaw = getVal('Forecast - Estado') || 'Por Definir';
     let forecastEstado = 'Por Definir';
@@ -589,7 +571,6 @@ function normalizeData(rows) {
     const so = getVal('Sistema Operativo');
     const soDestino = getVal('Sistema Operativo_Destino', 'SO Destino');
 
-    // CLASIFICACIÓN DE S.O (WINDOWS / LINUX)
     const soTexto = norm(soDestino || so);
     let soFamilia = 'Otros';
     if (soTexto.includes('windows')) {
@@ -648,7 +629,6 @@ function normalizeData(rows) {
     );
     const ticketSinObservacion = !tieneObservacionAprov && !esPendienteGA;
 
-    // CONTROLES DE COMPLIANCE TÉCNICO (7 CONTROLES)
     const qualys = getVal('Qualys');
     const okQualys = isControlOK(qualys);
 
@@ -778,12 +758,7 @@ function applyFilters() {
     pool = pool.filter(r => r.q === state.filters.q);
   }
   if (state.filters.grupos && state.filters.grupos.size > 0) {
-    pool = pool.filter(r => {
-      for (const g of state.filters.grupos) {
-        if (r.grupoPrioridad.includes(g)) return true;
-      }
-      return false;
-    });
+    pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
   }
   if (state.filters.soFamilia !== '__ALL__') {
     pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
@@ -817,12 +792,15 @@ function initFilters() {
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
-  const allGrupos = [
-    { key: "Grupo 01", label: "Grupo 01 (30 Tickets)" },
-    { key: "Grupo 02", label: "Grupo 02 (37 Tickets)" },
-    { key: "Grupo 03", label: "Grupo 03 (59 Tickets)" }
-  ];
-  state.filters.grupos = new Set(allGrupos.map(g => g.key));
+  // GENERACIÓN DINÁMICA DE OPCIONES BASADA EN LA COLUMNA "GRUPO"
+  const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
+  state.filters.grupos = new Set(allGruposKeys);
+
+  const tktAllMap = computeTicketsMap(state.raw);
+  const allGrupos = allGruposKeys.map(g => {
+    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === g || (t.servidores && t.servidores.some(s => s.grupoPrioridad === g))).length;
+    return { key: g, label: `${g} (${countTkts} Tickets)` };
+  });
 
   const ddGrupos = $('#dropdownGrupos');
   ddGrupos.innerHTML = `
@@ -854,7 +832,7 @@ function initFilters() {
   chkGrupoAll.onchange = e => {
     const checked = e.target.checked;
     chkGrupos.forEach(c => { c.checked = checked; });
-    if (checked) state.filters.grupos = new Set(allGrupos.map(g => g.key));
+    if (checked) state.filters.grupos = new Set(allGruposKeys);
     else state.filters.grupos.clear();
     updateGruposLabel();
     applyFilters();
@@ -950,7 +928,7 @@ function initFilters() {
   $('#btnReset').onclick = () => {
     state.filters = {
       q: '__ALL__',
-      grupos: new Set(allGrupos.map(g => g.key)),
+      grupos: new Set(allGruposKeys),
       soFamilia: '__ALL__',
       ambito: 'SOLO_MIGRADOS',
       condicion: '__ALL__',
@@ -972,7 +950,6 @@ function initFilters() {
   };
 }
 
-// CÓMPUTO DE TICKETS INDIVIDUALES
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
@@ -1306,7 +1283,6 @@ function renderCockpit() {
     </div>
   `;
 
-  // 1. Dona: Matriz de Saneamiento (Tooltip con Servidores y Tickets)
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
     data: { labels: matrizLabels, datasets: [{ data: matrizCounts, backgroundColor: matrizColors }] },
@@ -1343,7 +1319,6 @@ function renderCockpit() {
     }
   });
 
-  // 2. Dona: Tickets con Observación vs Sin Observación (Tooltip con Servidores y Tickets)
   state.charts.obsAprov = new Chart($('#cObsAprov'), {
     type: 'doughnut',
     data: { labels: Object.keys(obsTicketData), datasets: [{ data: Object.values(obsTicketData), backgroundColor: ['#BA1A1A', '#546E7A', '#107C41'] }] },
@@ -1368,7 +1343,6 @@ function renderCockpit() {
     }
   });
 
-  // 3. Dona: Compliance Técnico (Tooltip con Servidores y Tickets)
   state.charts.complianceDoughnut = new Chart($('#cComplianceDoughnut'), {
     type: 'doughnut',
     data: { labels: Object.keys(compStatusData), datasets: [{ data: Object.values(compStatusData), backgroundColor: ['#107C41', '#BA1A1A'] }] },
@@ -1415,7 +1389,6 @@ function renderCockpit() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
-  // 4. Dona: Estado de Entrega (Tooltip con Servidores y Tickets)
   state.charts.entrega = new Chart($('#cEntrega'), {
     type: 'doughnut',
     data: { labels: Object.keys(entregaCounts), datasets: [{ data: Object.values(entregaCounts), backgroundColor: ['#107C41', '#BA1A1A', '#D9730D', '#0263E0', '#545454'] }] },
@@ -1445,12 +1418,7 @@ function renderEntregables() {
   let pool = state.raw;
   if (state.filters.q !== '__ALL__') pool = pool.filter(r => r.q === state.filters.q);
   if (state.filters.grupos && state.filters.grupos.size > 0) {
-    pool = pool.filter(r => {
-      for (const g of state.filters.grupos) {
-        if (r.grupoPrioridad.includes(g)) return true;
-      }
-      return false;
-    });
+    pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
   }
   if (state.filters.soFamilia !== '__ALL__') {
     pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
@@ -1575,7 +1543,6 @@ function renderEntregables() {
     </div>
   `;
 
-  // 5. Dona: Entregables vs No Entregables (Tooltip con Tickets y Servidores)
   state.charts.entregablesDoughnut = new Chart($('#cEntregablesDoughnut'), {
     type: 'doughnut',
     data: {
@@ -1669,15 +1636,9 @@ function renderEntregables() {
   $('#selFiltroTktEstado').onchange = filterTktTable;
 }
 
-// -----------------------------------------------------------------------------------
-// NUEVA PESTAÑA: 🛡️ PENDIENTES DE HARDENING & COMPLIANCE
-// -----------------------------------------------------------------------------------
 function renderHardening() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
-  const tot = dedup.length || 1;
-
-  // Servidores activos no desestimados
   const activos = dedup.filter(r => !r.esServidorDesestimado);
   const totActivos = activos.length || 1;
 
@@ -1686,11 +1647,9 @@ function renderHardening() {
   const pendParchado = activos.filter(r => !r.okParchado);
   const conCualquierBrecha = activos.filter(r => !r.isServerCompliant);
 
-  // Tickets que están bloqueados exclusivamente por brechas técnicas
   const tktAllMap = computeTicketsMap(v);
   const tktsBloqueados = Object.keys(tktAllMap).filter(t => tktAllMap[t].conBrechaTecnica > 0);
 
-  // Distribución de pendientes de Hardening S.O por Q
   const qs = uniq(state.raw.map(r => r.q)).sort();
   const qLabels = [];
   const qHardSoData = [];
@@ -1790,7 +1749,6 @@ function renderHardening() {
     </div>
   `;
 
-  // Gráfica de Barras de Hardening por Q
   state.charts.hardeningQ = new Chart($('#cHardeningQ'), {
     type: 'bar',
     data: {
@@ -1806,7 +1764,6 @@ function renderHardening() {
     }
   });
 
-  // Dona de Brechas con Tooltip de Servidores y Tickets
   const brechaCounts = [
     pendHardSO.length,
     pendHardSub.length,
@@ -1840,7 +1797,6 @@ function renderHardening() {
     }
   });
 
-  // Render de filas de la tabla de Hardening
   const paintHardRows = (list) => {
     $('#tbodyHardening').innerHTML = list.slice(0, 300).map(r => `
       <tr onclick="drillServer(${r._id})">
@@ -2090,20 +2046,24 @@ function renderQBreakdown() {
   `;
 }
 
+// PESTAÑA DINÁMICA DE GRUPOS (LEE DIRECTAMENTE TODOS LOS GRUPOS DEL EXCEL)
 function renderGrupos() {
   const v = state.view;
-  const groupsInfo = [
-    { name: 'Grupo 01', tktCount: 30, subset: v.filter(r => r.grupoPrioridad.includes('Grupo 01')) },
-    { name: 'Grupo 02', tktCount: 37, subset: v.filter(r => r.grupoPrioridad.includes('Grupo 02')) },
-    { name: 'Grupo 03', tktCount: 59, subset: v.filter(r => r.grupoPrioridad.includes('Grupo 03')) }
-  ];
+  const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
+  const tktAllMap = computeTicketsMap(state.raw);
+
+  const groupsInfo = allGruposKeys.map(gName => {
+    const subset = v.filter(r => r.grupoPrioridad === gName);
+    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === gName || (t.servidores && t.servidores.some(s => s.grupoPrioridad === gName))).length;
+    return { name: gName, tktCount: countTkts, subset };
+  });
 
   $('#tabBody').innerHTML = `
     <div class="tile">
       <div class="th">
         <div>
-          <h3>Avance de Tickets y Compliance por Grupo Prioritario</h3>
-          <div class="sub">Distribución sobre los paquetes de aprovisionamiento priorizados</div>
+          <h3>Avance de Tickets y Compliance por Grupos Prioritarios</h3>
+          <div class="sub">Distribución calculada dinámicamente desde la columna "Grupo"</div>
         </div>
       </div>
       <div class="tw">
@@ -2573,7 +2533,7 @@ function render() {
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
-    grupos: 'Los 3 Grupos Prioritarios',
+    grupos: 'Distribución por Grupos Prioritarios',
     regularizacion: '¿Qué Falta Sanear? · Regularización',
     controles: 'Controles de Seguridad del Servidor',
     nci: 'Gestión de Non-Compliance (NCI)',
