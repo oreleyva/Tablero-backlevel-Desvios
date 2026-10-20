@@ -545,11 +545,12 @@ function normalizeData(rows) {
     };
 
     const q = getVal('Q - IBK', 'Q-IBK', 'Q') || 'Sin Q';
+    
+    // Extracción limpia del Ticket tal cual está registrado en Excel
     const tktRaw = getVal('Ticket de Aprovisionamiento');
-    const tktClean = tktRaw.replace(/\.0$/, '').replace(/_/g, '').trim();
-    const tktParts = tktClean.split('/').map(p => p.trim()).filter(Boolean);
+    const tktClean = tktRaw.replace(/\.0$/, '').trim();
 
-    // EXTRACCIÓN DINÁMICA DE LA COLUMNA "GRUPO"
+    // LECTURA DINÁMICA DE LA COLUMNA "GRUPO" DEL EXCEL
     const grupoExcel = getVal('Grupo', 'Grupo Prioridad', 'Grupo de Prioridad', 'Grupo_Prioridad', 'Grupos');
     const grupoPrioridad = grupoExcel ? grupoExcel : 'Sin Grupo';
 
@@ -715,7 +716,6 @@ function normalizeData(rows) {
       forecastEstado,
       esMigrado,
       ticketAprov: tktClean,
-      tktParts,
       grupoPrioridad,
       estadoEntrega,
       etiqCat,
@@ -792,13 +792,13 @@ function initFilters() {
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
-  // GENERACIÓN DINÁMICA DE OPCIONES BASADA EN LA COLUMNA "GRUPO"
+  // LECTURA DINÁMICA DE GRUPOS DESDE LA COLUMNA "GRUPO"
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
   state.filters.grupos = new Set(allGruposKeys);
 
   const tktAllMap = computeTicketsMap(state.raw);
   const allGrupos = allGruposKeys.map(g => {
-    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === g || (t.servidores && t.servidores.some(s => s.grupoPrioridad === g))).length;
+    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === g).length;
     return { key: g, label: `${g} (${countTkts} Tickets)` };
   });
 
@@ -950,56 +950,55 @@ function initFilters() {
   };
 }
 
+// CÓMPUTO RIGUROSO DE TICKETS (CONSISTENTE CON LA TABLA DINÁMICA DE EXCEL)
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
-    const lista = (r.tktParts && r.tktParts.length) ? r.tktParts : [r.ticketAprov];
-    lista.forEach(t => {
-      if (!t) return;
-      if (!tktMap[t]) {
-        tktMap[t] = {
-          ticket: t,
-          grupo: r.grupoPrioridad,
-          q: r.q,
-          servidores: [],
-          total: 0,
-          entregados: 0,
-          desestimados: 0,
-          pendientesEntrega: 0,
-          conBrechaTecnica: 0,
-          tieneObsTicket: false,
-          esPendienteGA: false,
-          estadosObsTexto: new Set(),
-          queFaltaTextos: new Set()
-        };
-      }
-      tktMap[t].servidores.push(r);
-      tktMap[t].total++;
+    const t = r.ticketAprov;
+    if (!t) return;
+    if (!tktMap[t]) {
+      tktMap[t] = {
+        ticket: t,
+        grupo: r.grupoPrioridad,
+        q: r.q,
+        servidores: [],
+        total: 0,
+        entregados: 0,
+        desestimados: 0,
+        pendientesEntrega: 0,
+        conBrechaTecnica: 0,
+        tieneObsTicket: false,
+        esPendienteGA: false,
+        estadosObsTexto: new Set(),
+        queFaltaTextos: new Set()
+      };
+    }
+    tktMap[t].servidores.push(r);
+    tktMap[t].total++;
 
-      if (r.esServidorDesestimado) {
-        tktMap[t].desestimados++;
-      } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
-        tktMap[t].entregados++;
-      } else {
-        tktMap[t].pendientesEntrega++;
-      }
+    if (r.esServidorDesestimado) {
+      tktMap[t].desestimados++;
+    } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
+      tktMap[t].entregados++;
+    } else {
+      tktMap[t].pendientesEntrega++;
+    }
 
-      if (!r.isServerCompliant && !r.esServidorDesestimado) {
-        tktMap[t].conBrechaTecnica++;
-      }
+    if (!r.isServerCompliant && !r.esServidorDesestimado) {
+      tktMap[t].conBrechaTecnica++;
+    }
 
-      if (r.tieneObservacionAprov) {
-        tktMap[t].tieneObsTicket = true;
-        if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
-      }
-      if (r.esPendienteGA) {
-        tktMap[t].esPendienteGA = true;
-        if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
-      }
-      if (r.queFalta) {
-        tktMap[t].queFaltaTextos.add(r.queFalta);
-      }
-    });
+    if (r.tieneObservacionAprov) {
+      tktMap[t].tieneObsTicket = true;
+      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+    }
+    if (r.esPendienteGA) {
+      tktMap[t].esPendienteGA = true;
+      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+    }
+    if (r.queFalta) {
+      tktMap[t].queFaltaTextos.add(r.queFalta);
+    }
   });
   return tktMap;
 }
@@ -1867,9 +1866,7 @@ function renderHardening() {
 }
 
 function abrirAuditoriaTicket(tktNum) {
-  const rowsTicket = state.raw.filter(r => {
-    return (r.tktParts && r.tktParts.includes(tktNum)) || r.ticketAprov === tktNum;
-  });
+  const rowsTicket = state.raw.filter(r => r.ticketAprov === tktNum);
   if (!rowsTicket.length) return;
   const primer = rowsTicket[0];
   const tktData = computeTicketsEntregables(rowsTicket).find(t => t.ticket === tktNum) || computeTicketsEntregables(rowsTicket)[0];
@@ -2046,7 +2043,6 @@ function renderQBreakdown() {
   `;
 }
 
-// PESTAÑA DINÁMICA DE GRUPOS (LEE DIRECTAMENTE TODOS LOS GRUPOS DEL EXCEL)
 function renderGrupos() {
   const v = state.view;
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
@@ -2054,7 +2050,7 @@ function renderGrupos() {
 
   const groupsInfo = allGruposKeys.map(gName => {
     const subset = v.filter(r => r.grupoPrioridad === gName);
-    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === gName || (t.servidores && t.servidores.some(s => s.grupoPrioridad === gName))).length;
+    const countTkts = Object.values(tktAllMap).filter(t => t.grupo === gName).length;
     return { name: gName, tktCount: countTkts, subset };
   });
 
