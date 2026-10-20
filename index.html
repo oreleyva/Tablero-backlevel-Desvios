@@ -254,9 +254,11 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .cal-cell.has-events { border-left: 3px solid var(--k-red); }
 .cal-cell.empty { background: transparent; border-color: transparent; cursor: default; }
 .cal-day-num { font-size: 12px; font-weight: 700; color: var(--k-charcoal); margin-bottom: 4px; }
+
+/* Estilos de las tarjetas numéricas dentro del calendario */
 .cal-tag {
-  font-size: 10.5px; font-weight: 700; padding: 3px 6px; border-radius: 4px;
-  margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+  font-size: 11px; font-weight: 700; padding: 4px 6px; border-radius: 4px;
+  margin-bottom: 4px; text-align: center;
 }
 .cal-tag-ok { background: var(--c-ok-bg); color: var(--c-ok); border: 1px solid var(--c-ok); }
 .cal-tag-pend { background: var(--c-alert-bg); color: var(--c-alert); border: 1px solid var(--c-alert); }
@@ -326,6 +328,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     </div>
     <div class="navlist">
       <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
+      <button class="navbtn" data-tab="informe">📑 Informe Ejecutivo SDM</button>
       <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
       <button class="navbtn" data-tab="cronograma">📅 Calendario de Remediación</button>
       <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
@@ -489,7 +492,7 @@ const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('es-PE');
 const pct = (n, d) => !d ? '0.0%' : (n / d * 100).toFixed(1) + '%';
-const norm = s => String(s == null ? '' : s).toLowerCase().replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+const norm = s => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
 const uniq = a => Array.from(new Set(a));
 
 function isNA(val) {
@@ -598,8 +601,9 @@ function normalizeData(rows) {
     const normSub = norm(estadoSubCat);
 
     const esServidorEntregadoIBK = normCat.includes('entregad') || normCat.includes('aceptad');
-    const esServidorDesestimado = normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong') || forecastEstado === 'Desestimado';
     const esRechazadoNoAceptado = normCat.includes('no aceptado') || normCat.includes('no aceptada') || normSub.includes('no aceptado') || normCat.includes('rechazad');
+
+    const esServidorDesestimado = !esServidorEntregadoIBK && (normCat.includes('desestimad') || normSub.includes('desestimad') || normSub.includes('decommissiong') || forecastEstado === 'Desestimado');
 
     const fechaEntregaRaw = getVal('Fecha de Entrega IBK', 'Fecha Entrega IBK', 'Fecha Entrega');
     const fechaEntregaObj = parseToDateObj(fechaEntregaRaw);
@@ -624,17 +628,20 @@ function normalizeData(rows) {
     const queFalta = getVal('Que Falta?');
     const normQFalta = norm(queFalta);
     
-    const esPendienteGA = normAprov.includes('g.a') || 
+    const yaValidadoAlejandro = normQFalta.includes('alejandro valido') || normQFalta.includes('valido alejandro') || normAprov === 'ok';
+
+    const esPendienteGA = !yaValidadoAlejandro && (
+                          normAprov.includes('g.a') || 
                           normAprov.includes('gestion activos') || 
                           normAprov.includes('gestión activos') || 
                           normAprov.includes('gestion de activos') || 
                           normAprov.includes('gestión de activos') || 
                           normAprov.includes('val. gestion') ||
-                          normQFalta.includes('gestion activos') ||
-                          normQFalta.includes('gestión activos') ||
-                          (normAprov.includes('subsanado') && normAprov.includes('val'));
+                          normQFalta.includes('pendiente de val. gestion') ||
+                          normQFalta.includes('pendiente de val') ||
+                          (normAprov.includes('subsanado') && normAprov.includes('val')));
 
-    const tieneObservacionAprov = !esPendienteGA && (
+    const tieneObservacionAprov = !esPendienteGA && !yaValidadoAlejandro && (
       normAprov.includes('desvio') || 
       normAprov.includes('desvío') || 
       normAprov.includes('observado') || 
@@ -1162,6 +1169,204 @@ function renderKPIs() {
       <div class="lbl">🚨 Servidores Doble Brecha</div>
       <div class="val">${fmt(dobleBrechaServ)} <small style="font-size:15px;font-weight:600">(${pct(dobleBrechaServ, totServers)})</small></div>
       <div class="sub">Servidor No Comp. + Ticket Obs.</div>
+    </div>
+  `;
+}
+
+function renderInforme() {
+  const v = state.view;
+  const tktMap = computeTicketsMap(v);
+  const uniqueTkts = Object.keys(tktMap);
+
+  const totTkts = uniqueTkts.length;
+  const totHosts = distinctDestServers(v);
+  const totComps = v.length;
+
+  const grpStats = { '1er Grupo': { t:0, h:new Set(), c:0 }, '2do Grupo': { t:0, h:new Set(), c:0 }, '3er Grupo': { t:0, h:new Set(), c:0 }, 'Otros': { t:0, h:new Set(), c:0 } };
+  v.forEach(r => {
+    let g = r.grupoPrioridad.includes('1er') || r.grupoPrioridad.includes('01') ? '1er Grupo' :
+            r.grupoPrioridad.includes('2do') || r.grupoPrioridad.includes('02') ? '2do Grupo' :
+            r.grupoPrioridad.includes('3er') || r.grupoPrioridad.includes('03') ? '3er Grupo' : 'Otros';
+    grpStats[g].c++;
+    grpStats[g].h.add(r.hostDestinoKey);
+  });
+  uniqueTkts.forEach(t => {
+    let g = tktMap[t].grupo;
+    let gk = g.includes('1er') || g.includes('01') ? '1er Grupo' :
+             g.includes('2do') || g.includes('02') ? '2do Grupo' :
+             g.includes('3er') || g.includes('03') ? '3er Grupo' : 'Otros';
+    grpStats[gk].t++;
+  });
+
+  const partialTkts = uniqueTkts.filter(t => {
+    const item = tktMap[t];
+    const hostsCount = new Set(item.servidores.map(s => s.hostDestinoKey)).size;
+    return hostsCount > 1 && item.entregados > 0 && item.entregados < item.total;
+  });
+
+  const fullDeliveredAdminOpenTkts = uniqueTkts.filter(t => {
+    const item = tktMap[t];
+    const isAllDelivered = item.entregados === item.total;
+    const isOpen = !norm(item.servidores[0].estadoAprov).includes('cerrado') && !norm(item.servidores[0].estadoAprov).includes('ok');
+    return isAllDelivered && isOpen;
+  });
+
+  const controls = [
+    { name: 'Qualys', ok: v.filter(r => r.okQualys).length },
+    { name: 'Antivirus', ok: v.filter(r => r.okAv).length },
+    { name: 'Remediación S.O (Hardening)', ok: v.filter(r => r.okRemSo).length },
+    { name: 'Parchado S.O', ok: v.filter(r => r.okParchado).length },
+    { name: 'Remediación Subsistema', ok: v.filter(r => r.okRemSub).length },
+    { name: 'Política de Backup', ok: v.filter(r => r.okBkp).length },
+    { name: 'Monitoreo Activo', ok: v.filter(r => r.okMon).length }
+  ];
+
+  const conFecha = v.filter(r => r.diasHabiles !== null && !r.esServidorDesestimado);
+  const superaron7d = conFecha.filter(r => r.supero7Dias && !r.esRechazadoNoAceptado);
+  const rechazados = conFecha.filter(r => r.esRechazadoNoAceptado);
+
+  let tax = { tech:0, ga:0, baja:0, formato:0, oc:0, cerrado:0, otros:0 };
+  uniqueTkts.forEach(t => {
+     const item = tktMap[t];
+     const r = item.servidores[0];
+     const catReg = norm(r.catReg);
+     const estado = norm(r.estadoAprov);
+     const qf = norm(r.queFalta);
+     const hasTechGap = item.servidores.some(s => norm(s.remSo) === 'pendiente' || norm(s.etiqCat).includes('pendiente'));
+
+     if (estado.includes('g.a') || estado.includes('gestion activos') || estado.includes('gestión activos') || qf.includes('g.a') || qf.includes('gestion activos') || (estado.includes('subsanado') && estado.includes('val'))) tax.ga++;
+     else if (catReg.includes('baja') || qf.includes('baja') || qf.includes('desestimar') || qf.includes('eliminación')) tax.baja++;
+     else if (catReg.includes('oc') || estado.includes('oc') || qf.includes('pir') || qf.includes('activacion') || qf.includes('activación')) tax.oc++;
+     else if (catReg.includes('formato') || qf.includes('plantilla') || estado.includes('formato') || qf.includes('acta')) tax.formato++;
+     else if (hasTechGap) tax.tech++;
+     else if (estado === 'cerrado' || catReg === 'todo ok' || catReg === 'ok') tax.cerrado++;
+     else tax.otros++;
+  });
+
+  $('#tabBody').innerHTML = `
+    <div class="row r-2">
+        <div class="tile">
+            <div class="th">
+              <div>
+                <h3>1. Matriz de Trazabilidad End-to-End</h3>
+                <div class="sub">Equivalencia operativa de Tickets ↔ Hostnames ↔ Componentes</div>
+              </div>
+            </div>
+            <div style="font-size:12.5px; line-height:1.5;">
+                <div style="display:flex; justify-content:space-between; background:#FAF8F5; padding:10px; border-radius:6px; margin-bottom:10px; border:1px solid var(--k-line);">
+                    <div style="text-align:center;"><b>${fmt(totTkts)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">TICKETS APROV.</span></div>
+                    <div style="text-align:center;color:var(--k-red);"><b>⇄</b></div>
+                    <div style="text-align:center;"><b>${fmt(totHosts)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">HOSTNAMES ÚNICOS</span></div>
+                    <div style="text-align:center;color:var(--k-red);"><b>⇄</b></div>
+                    <div style="text-align:center;"><b>${fmt(totComps)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">COMPONENTES</span></div>
+                </div>
+                <b>Desglose Estructural:</b>
+                <ul style="margin-top:4px; margin-bottom:10px; padding-left:20px; color:var(--k-slate);">
+                    <li><b>1er Grupo:</b> ${grpStats['1er Grupo'].t} Tickets → ${grpStats['1er Grupo'].h.size} Hostnames → ${grpStats['1er Grupo'].c} Componentes</li>
+                    <li><b>2do Grupo:</b> ${grpStats['2do Grupo'].t} Tickets → ${grpStats['2do Grupo'].h.size} Hostnames → ${grpStats['2do Grupo'].c} Componentes</li>
+                    <li><b>3er Grupo:</b> ${grpStats['3er Grupo'].t} Tickets → ${grpStats['3er Grupo'].h.size} Hostnames → ${grpStats['3er Grupo'].c} Componentes</li>
+                </ul>
+                <b>Entregas Parciales (Bloqueo por Minoría):</b> Existen ${partialTkts.length} tickets donde la mayoría de servidores están entregados, pero 1 o 2 impiden el cierre del ticket.<br>
+                <b>Bloqueo Administrativo:</b> Se identifican ${fullDeliveredAdminOpenTkts.length} tickets con el 100% de sus servidores entregados a IBK que permanecen abiertos en la herramienta por trámites de firmas, formatos o actas.
+            </div>
+        </div>
+
+        <div class="tile">
+            <div class="th">
+              <div>
+                <h3>3. Taxonomía y Plan de Acción de Desvíos</h3>
+                <div class="sub">Clasificación operativa y asignación de responsabilidades de cierre</div>
+              </div>
+            </div>
+            <div class="tw">
+                <table class="dt">
+                    <thead><tr><th>Tipología Operativa</th><th class="num">Tickets</th><th>Acción de Cierre</th><th>Responsable</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-alert">Desvío Técnico Real (Hardening)</span></td><td class="num font-weight:700">${tax.tech}</td><td style="font-size:11.5px;">Ejecución de scripts S.O y Subsistema</td><td style="font-size:11.5px;">SO / BD Kyndryl</td></tr>
+                        <tr><td><span class="badge badge-ga">Pendiente Validación G.A</span></td><td class="num font-weight:700">${tax.ga}</td><td style="font-size:11.5px;">Aprobación de expedientes</td><td style="font-size:11.5px;">SDM / Alejandro IBK</td></tr>
+                        <tr><td><span class="badge badge-warn">Regularización de Baja (CMDB)</span></td><td class="num font-weight:700">${tax.baja}</td><td style="font-size:11.5px;">Flujo de baja en CTM sin actas</td><td style="font-size:11.5px;">Torre CMDB</td></tr>
+                        <tr><td><span class="badge badge-warn">Desvío de Formato / Documental</span></td><td class="num font-weight:700">${tax.formato}</td><td style="font-size:11.5px;">Re-emisión de plantillas vigentes</td><td style="font-size:11.5px;">Tech Lead / PMO</td></tr>
+                        <tr><td><span class="badge badge-warn">Desvío de OC / Activación</span></td><td class="num font-weight:700">${tax.oc}</td><td style="font-size:11.5px;">Conciliación de PIR/OC</td><td style="font-size:11.5px;">Change Management</td></tr>
+                        <tr><td><span class="badge badge-ok">Cerrados / Sin Desvío</span></td><td class="num font-weight:700">${tax.cerrado}</td><td style="font-size:11.5px;">-</td><td style="font-size:11.5px;">-</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="row r-2">
+        <div class="tile">
+            <div class="th">
+              <div>
+                <h3>2. Auditoría del Checklist Técnico de Entrega</h3>
+                <div class="sub">Tasa de cumplimiento de estándares obligatorios de seguridad (${totComps} componentes)</div>
+              </div>
+            </div>
+            <div class="tw">
+                <table class="dt">
+                    <thead><tr><th>Control Técnico Auditado</th><th class="num">Conformes/Exentos</th><th class="num">% Cumplimiento</th></tr></thead>
+                    <tbody>
+                        ${controls.map(c => `
+                            <tr>
+                                <td style="font-weight:700;font-size:11.5px;">${esc(c.name)}</td>
+                                <td class="num" style="color:var(--c-ok);font-weight:700;">${fmt(c.ok)}</td>
+                                <td class="num font-weight:700">${pct(c.ok, totComps)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div style="font-size:11.5px; line-height:1.5; margin-top:10px; color:var(--k-slate);">
+                <b>Brechas Reales vs Evidencias:</b> La falta de Hardening S.O concentra la deuda técnica real. Existen casos puntuales con Hardening aplicado donde solo falta adjuntar el Archivo Scan HC S.O (Pendiente documental, no técnico).
+            </div>
+        </div>
+
+        <div class="tile">
+            <div class="th">
+              <div>
+                <h3>4. Regla de Aceptación y Defensa SLA (7 Días)</h3>
+                <div class="sub">Aceptación Tácita de Servidores Entregados</div>
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px; font-size:13px; line-height:1.5;">
+                <div style="display:flex; gap:10px; text-align:center;">
+                    <div style="flex:1; background:#E8F5E9; border:1px solid var(--c-ok); padding:10px; border-radius:6px;">
+                        <div style="font-size:20px; font-weight:800; color:var(--c-ok);">${superaron7d.length}</div>
+                        <div style="font-size:10px; font-weight:700; color:var(--c-ok);">ACEPTADOS TÁCITAMENTE (>7 DÍAS)</div>
+                    </div>
+                    <div style="flex:1; background:#FFEBEE; border:1px solid var(--c-alert); padding:10px; border-radius:6px;">
+                        <div style="font-size:20px; font-weight:800; color:var(--c-alert);">${rechazados.length}</div>
+                        <div style="font-size:10px; font-weight:700; color:var(--c-alert);">RECHAZOS DENTRO DE VENTANA</div>
+                    </div>
+                </div>
+                <div style="background:#FAF8F5; border-left:3px solid var(--k-slate); padding:10px 14px; border-radius:4px; font-size:12px;">
+                    <b>Aplicación SLA Contractual:</b> El ${pct(superaron7d.length, conFecha.length || 1)} de los servidores con fecha de entrega a IBK superó la ventana de 7 días hábiles sin observaciones formales, consolidando su aceptación tácita. Las observaciones de seguridad extemporáneas deben derivarse a la mesa de remediación continua, sin bloquear el cierre administrativo del aprovisionamiento en Backlevel.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tile">
+        <div class="th">
+          <div>
+            <h3>5. Tablero de Control y Argumentario Ejecutivo (One-Page)</h3>
+            <div class="sub">Justificaciones sustentadas para mesa de trabajo con IBK (Alejandro / Gestión de Activos / Auditoría)</div>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px; font-size:12.5px; line-height:1.6;">
+            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
+                <b style="color:var(--k-red);">Argumento 1: Discrepancia de Alcance (Reclamo 500 vs. ${totHosts} reales)</b><br>
+                "Alejandro, la base oficial de desvíos registra exactamente <b>${totHosts} hostnames destino únicos</b> que sustentan ${totComps} componentes y responden a ${totTkts} tickets. El número de 500 surge de sumar erróneamente componentes lógicos con hostnames físicos o incluir servidores que el propio banco desestimó durante la ejecución. Contractualmente, la infraestructura gestionada es de ${totHosts} servidores destino."
+            </div>
+            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
+                <b style="color:var(--k-red);">Argumento 2: Ticket Abierto ≠ Servidor No Migrado</b><br>
+                "Un ticket abierto en la consola no significa indisponibilidad ni retraso de migración. Gran parte de la infraestructura de tickets abiertos ya se encuentra en producción y entregada. Mantener abiertos tickets que tienen el 100% de sus servidores operando (solo por firmas pendientes de G.A) distorsiona severamente los indicadores de Backlevel ante Auditoría."
+            </div>
+            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
+                <b style="color:var(--k-red);">Argumento 3: Aceptación Tácita por SLA Contractual</b><br>
+                "El acuerdo de nivel de servicio estipula 7 días hábiles para objeciones. El ${pct(superaron7d.length, conFecha.length || 1)} de la infraestructura entregada no recibió rechazo en esa ventana y opera en el banco. Estas máquinas están aceptadas. Las revisiones técnicas posteriores (Auditoría/Hardening) se atienden, pero no pueden paralizar retroactivamente el cierre del ticket de aprovisionamiento original."
+            </div>
+        </div>
     </div>
   `;
 }
@@ -2175,6 +2380,7 @@ function renderHardening() {
   $$('#tblHardening th.sortable').forEach(th => {
     th.onclick = () => {
       const colKey = th.dataset.col;
+      if (!colKey) return;
       if (state.sortHardening.col === colKey) {
         state.sortHardening.asc = !state.sortHardening.asc;
       } else {
@@ -2851,6 +3057,7 @@ function render() {
   const views = {
     cockpit: renderCockpit,
     entregables: renderEntregables,
+    informe: renderInforme,
     cronograma: renderCronograma,
     hardening: renderHardening,
     qbreakdown: renderQBreakdown,
@@ -2867,6 +3074,7 @@ function render() {
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
+    informe: '📑 Informe Técnico y Ejecutivo de Service Delivery',
     cronograma: '📅 Calendario Mensual de Remediación de Hardening',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
