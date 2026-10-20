@@ -34,7 +34,7 @@
   --c-purple: #6A1B9A;
   --c-purple-bg: #F3E5F5;
   --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.04);
-  --nav: 240px;
+  --nav: 245px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -155,7 +155,10 @@ select:focus, input:focus { outline: 2px solid var(--k-red); outline-offset: 1px
 .kpi-card {
   background: var(--k-panel); border: 1px solid var(--k-line); border-radius: 8px;
   padding: 12px 14px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
+.kpi-card.clickable { cursor: pointer; }
+.kpi-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
 .kpi-card .lbl { font-size: 10.5px; font-weight: 600; color: var(--k-slate); text-transform: uppercase; letter-spacing: 0.04em; }
 .kpi-card .val { font-size: 23px; font-weight: 800; color: var(--k-black); margin-top: 4px; line-height: 1.1; }
 .kpi-card .sub { font-size: 11px; margin-top: 5px; color: var(--k-slate); }
@@ -211,19 +214,9 @@ table.dt th.sortable {
   user-select: none;
   transition: background 0.15s;
 }
-table.dt th.sortable:hover {
-  background: #333333;
-}
-table.dt th.sortable .sort-arrow {
-  display: inline-block;
-  margin-left: 4px;
-  font-size: 9px;
-  color: #FF8F80;
-}
-table.dt th.sortable.sorted-col {
-  background: #2D2D2D;
-  border-bottom: 2px solid var(--k-red);
-}
+table.dt th.sortable:hover { background: #333333; }
+table.dt th.sortable .sort-arrow { display: inline-block; margin-left: 4px; font-size: 9px; color: #FF8F80; }
+table.dt th.sortable.sorted-col { background: #2D2D2D; border-bottom: 2px solid var(--k-red); }
 
 table.dt th.num, table.dt td.num { text-align: right; }
 table.dt td { padding: 8px 10px; border-bottom: 1px solid var(--k-line-subtle); color: var(--k-black); background: #fff; }
@@ -237,15 +230,8 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .badge-neutral { background: #EFEFEF; color: #444; border: 1px solid #D5D5D5; }
 
 .chip-ctl {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-  margin: 1px 2px;
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px;
+  border-radius: 4px; font-size: 10px; font-weight: 700; white-space: nowrap; margin: 1px 2px;
 }
 .chip-ok { background: #E8F5E9; color: #107C41; border: 1px solid #A5D6A7; }
 .chip-fail { background: #FFEBEE; color: #BA1A1A; border: 1px solid #FFCDD2; }
@@ -317,6 +303,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     <div class="navlist">
       <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
       <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
+      <button class="navbtn" data-tab="cronograma">📅 Plan de Cierre & Cronograma</button>
       <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
       <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
       <button class="navbtn" data-tab="grupos">Distribución por Grupos</button>
@@ -425,13 +412,9 @@ function parseToDateObj(v) {
   const s = String(v).trim();
   if (!s || s === 'NaT' || s === 'null' || s === '-' || s === '—') return null;
   const mMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (mMatch) {
-    return new Date(parseInt(mMatch[3], 10), parseInt(mMatch[2], 10) - 1, parseInt(mMatch[1], 10));
-  }
+  if (mMatch) return new Date(parseInt(mMatch[3], 10), parseInt(mMatch[2], 10) - 1, parseInt(mMatch[1], 10));
   const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (isoMatch) {
-    return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
-  }
+  if (isoMatch) return new Date(parseInt(isoMatch[1], 10), parseInt(isoMatch[2], 10) - 1, parseInt(isoMatch[3], 10));
   const d = new Date(s);
   return isNaN(d) ? null : d;
 }
@@ -451,9 +434,7 @@ function calcularDiasHabiles(fechaInicio, fechaFin = new Date()) {
       const m = String(cur.getMonth() + 1).padStart(2, '0');
       const d = String(cur.getDate()).padStart(2, '0');
       const isoKey = `${y}-${m}-${d}`;
-      if (!FERIADOS_PERU.has(isoKey)) {
-        diasHabiles++;
-      }
+      if (!FERIADOS_PERU.has(isoKey)) diasHabiles++;
     }
     cur.setDate(cur.getDate() + 1);
   }
@@ -502,9 +483,7 @@ function isControlOK(val) {
 }
 
 function renderCellControl(val, isOk) {
-  if (isNA(val)) {
-    return `<span class="badge badge-neutral" title="No Aplica (Exento)">N/A</span>`;
-  }
+  if (isNA(val)) return `<span class="badge badge-neutral" title="No Aplica (Exento)">N/A</span>`;
   return isOk ? '✅' : '<span style="color:var(--c-alert);font-weight:700;">❌</span>';
 }
 
@@ -587,11 +566,8 @@ function normalizeData(rows) {
 
     const soTexto = norm(soDestino || so);
     let soFamilia = 'Otros';
-    if (soTexto.includes('windows')) {
-      soFamilia = 'Windows';
-    } else if (soTexto.includes('linux') || soTexto.includes('red hat') || soTexto.includes('rhel')) {
-      soFamilia = 'Linux';
-    }
+    if (soTexto.includes('windows')) soFamilia = 'Windows';
+    else if (soTexto.includes('linux') || soTexto.includes('red hat') || soTexto.includes('rhel')) soFamilia = 'Linux';
 
     const etiqCat = getVal('Etiqueta (Categoria)', 'Etiqueta (Categoria) ');
     const estadoSubCat = getVal('Estado (Sub_Categoria)');
@@ -700,19 +676,17 @@ function normalizeData(rows) {
 
     const nciRaw = getVal('NCI');
     let nciFormateado = nciRaw;
-    if (NCI_LABELS[nciRaw]) {
-      nciFormateado = NCI_LABELS[nciRaw];
-    } else if (norm(nciRaw).includes('10420737')) {
-      nciFormateado = '10420737 - Operaciones';
-    } else if (norm(nciRaw).includes('10333875')) {
-      nciFormateado = '10333875 - Operaciones';
-    } else if (norm(nciRaw).includes('10563409')) {
-      nciFormateado = '10563409 - Backlevel';
-    } else if (norm(nciRaw).includes('10563632')) {
-      nciFormateado = '10563632 - Backlevel';
-    }
-    const tieneNci = nciFormateado !== '' && !['no asignado','no requiere','desestimado','-'].includes(norm(nciFormateado));
-    const catReg = getVal('Categoria de Regularizacion', 'Categoria de Regularizacion ') || 'Sin regularizar';
+    if (NCI_LABELS[nciRaw]) nciFormateado = NCI_LABELS[nciRaw];
+    else if (norm(nciRaw).includes('10420737')) nciFormateado = '10420737 - Operaciones';
+    else if (norm(nciRaw).includes('10333875')) nciFormateado = '10333875 - Operaciones';
+    else if (norm(nciRaw).includes('10563409')) nciFormateado = '10563409 - Backlevel';
+    else if (norm(nciRaw).includes('10563632')) nciFormateado = '10563632 - Backlevel';
+
+    const fechaNciRaw = getVal('Fecha_NCI', 'Fecha NCI');
+    const fechaNciObj = parseToDateObj(fechaNciRaw);
+
+    const fechaRemSoRaw = getVal('Fecha de Remediacion S.O', 'Fecha Remediacion S.O');
+    const fechaRemSoObj = parseToDateObj(fechaRemSoRaw);
 
     return {
       _id: i + 1,
@@ -754,8 +728,11 @@ function normalizeData(rows) {
       condicionCruzada,
       condicionCodigo,
       nci: nciFormateado,
-      tieneNci,
-      catReg,
+      fechaNci: fmtFecha(fechaNciRaw),
+      fechaNciObj,
+      fechaRemSo: fmtFecha(fechaRemSoRaw),
+      fechaRemSoObj,
+      catReg: getVal('Categoria de Regularizacion', 'Categoria de Regularizacion ') || 'Sin regularizar',
       queFalta,
       fechaEntrega: fmtFecha(fechaEntregaRaw),
       fechaEntregaObj,
@@ -767,27 +744,13 @@ function normalizeData(rows) {
 
 function applyFilters() {
   let pool = state.raw;
-  if (state.filters.q !== '__ALL__') {
-    pool = pool.filter(r => r.q === state.filters.q);
-  }
-  if (state.filters.grupos && state.filters.grupos.size > 0) {
-    pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
-  }
-  if (state.filters.soFamilia !== '__ALL__') {
-    pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
-  }
-  if (state.filters.condicion !== '__ALL__') {
-    pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
-  }
-  if (state.filters.nci !== '__ALL__') {
-    pool = pool.filter(r => r.nci === state.filters.nci);
-  }
-  if (state.filters.entrega !== '__ALL__') {
-    pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
-  }
-  if (state.filters.ambientes && state.filters.ambientes.size > 0) {
-    pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
-  }
+  if (state.filters.q !== '__ALL__') pool = pool.filter(r => r.q === state.filters.q);
+  if (state.filters.grupos && state.filters.grupos.size > 0) pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
+  if (state.filters.soFamilia !== '__ALL__') pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
+  if (state.filters.condicion !== '__ALL__') pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
+  if (state.filters.nci !== '__ALL__') pool = pool.filter(r => r.nci === state.filters.nci);
+  if (state.filters.entrega !== '__ALL__') pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
+  if (state.filters.ambientes && state.filters.ambientes.size > 0) pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   state.view = pool;
   render();
 }
@@ -922,12 +885,8 @@ function initFilters() {
   };
 
   document.addEventListener('click', e => {
-    if (!e.target.closest('#btnGruposToggle') && !e.target.closest('#dropdownGrupos')) {
-      ddGrupos.classList.add('hide');
-    }
-    if (!e.target.closest('#btnAmbientesToggle') && !e.target.closest('#dropdownAmbientes')) {
-      ddAmbientes.classList.add('hide');
-    }
+    if (!e.target.closest('#btnGruposToggle') && !e.target.closest('#dropdownGrupos')) ddGrupos.classList.add('hide');
+    if (!e.target.closest('#btnAmbientesToggle') && !e.target.closest('#dropdownAmbientes')) ddAmbientes.classList.add('hide');
   });
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
@@ -992,9 +951,7 @@ function computeTicketsMap(rows) {
       tktMap[t].pendientesEntrega++;
     }
 
-    if (!r.isServerCompliant && !r.esServidorDesestimado) {
-      tktMap[t].conBrechaTecnica++;
-    }
+    if (!r.isServerCompliant && !r.esServidorDesestimado) tktMap[t].conBrechaTecnica++;
 
     if (r.tieneObservacionAprov) {
       tktMap[t].tieneObsTicket = true;
@@ -1004,11 +961,28 @@ function computeTicketsMap(rows) {
       tktMap[t].esPendienteGA = true;
       if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
     }
-    if (r.queFalta) {
-      tktMap[t].queFaltaTextos.add(r.queFalta);
-    }
+    if (r.queFalta) tktMap[t].queFaltaTextos.add(r.queFalta);
   });
   return tktMap;
+}
+
+// NAVEGACIÓN DIRECTA AL HACER CLIC EN LAS TARJETAS KPI
+function irADetalleConFiltro(estadoTkt) {
+  state.tab = 'entregables';
+  $$('.navbtn').forEach(b => b.classList.remove('on'));
+  const btn = document.querySelector('.navbtn[data-tab="entregables"]');
+  if (btn) btn.classList.add('on');
+  render();
+
+  setTimeout(() => {
+    const sel = $('#selFiltroTktEstado');
+    if (sel) {
+      sel.value = estadoTkt;
+      sel.dispatchEvent(new Event('change'));
+      const tabla = document.querySelector('#tbodyTickets');
+      if (tabla) tabla.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 100);
 }
 
 function renderKPIs() {
@@ -1068,18 +1042,18 @@ function renderKPIs() {
   const servidoresNoAceptados = dedup.filter(r => r.esRechazadoNoAceptado).length;
 
   $('#kpiStrip').innerHTML = `
-    <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
-      <div class="lbl">Tickets Aprov. Todo OK</div>
+    <div class="kpi-card ok clickable" onclick="irADetalleConFiltro('ENTREGABLE')" title="Haz clic para ver los tickets Entregables 100% Limpios">
+      <div class="lbl">Tickets Aprov. Todo OK ↗</div>
       <div class="val">${fmt(tktsAmbosOk)} <small style="font-size:14px;font-weight:700">(${pctOk})</small></div>
-      <div class="sub">100% Cerrado y Validado</div>
+      <div class="sub">100% Cerrado y Validado (Clic para ir)</div>
     </div>
-    <div class="kpi-card ga" style="border-left:4px solid var(--c-ga);">
-      <div class="lbl">Tickets Pend. Validación G.A</div>
+    <div class="kpi-card ga clickable" onclick="irADetalleConFiltro('NO_ENTREGABLE')" title="Haz clic para ver tickets pendientes en G.A">
+      <div class="lbl">Tickets Pend. Validación G.A ↗</div>
       <div class="val">${fmt(tktsPendGA)} <small style="font-size:14px;font-weight:700">(${pctGA})</small></div>
       <div class="sub">Subsanado en revisión de activos</div>
     </div>
-    <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
-      <div class="lbl">Tickets Aprov. Pendientes</div>
+    <div class="kpi-card alert clickable" onclick="irADetalleConFiltro('NO_ENTREGABLE')" title="Haz clic para ver tickets No Entregables con brecha">
+      <div class="lbl">Tickets Aprov. Pendientes ↗</div>
       <div class="val">${fmt(tktsPendientes)} <small style="font-size:14px;font-weight:700">(${pctPend})</small></div>
       <div class="sub">Con observación o brecha técnica</div>
     </div>
@@ -1460,12 +1434,8 @@ function renderCockpit() {
 function renderEntregables() {
   let pool = state.view;
   if (state.filters.q !== '__ALL__') pool = pool.filter(r => r.q === state.filters.q);
-  if (state.filters.grupos && state.filters.grupos.size > 0) {
-    pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
-  }
-  if (state.filters.soFamilia !== '__ALL__') {
-    pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
-  }
+  if (state.filters.grupos && state.filters.grupos.size > 0) pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
+  if (state.filters.soFamilia !== '__ALL__') pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
 
   const ticketsData = computeTicketsEntregables(pool);
   const totTickets = ticketsData.length || 1;
@@ -1687,10 +1657,181 @@ function renderEntregables() {
   $('#selFiltroTktEstado').onchange = filterTktTable;
 }
 
+// -----------------------------------------------------------------------------------
+// NUEVA PESTAÑA: 📅 PLAN DE CIERRE & CRONOGRAMA DE HITOS
+// -----------------------------------------------------------------------------------
+function renderCronograma() {
+  const v = state.view;
+  const dedup = dedupeByDestServer(v);
+  const activos = dedup.filter(r => !r.esServidorDesestimado);
+  const totActivos = activos.length || 1;
+
+  const tktAllMap = computeTicketsMap(v);
+  const allTkts = Object.keys(tktAllMap);
+
+  const tktsPendientes = allTkts.filter(t => {
+    const item = tktAllMap[t];
+    return item.tieneObsTicket || item.conBrechaTecnica > 0 || item.pendientesEntrega > 0;
+  });
+
+  const servPendHardening = activos.filter(r => !r.okRemSo || !r.okRemSub);
+
+  // Desglose por grupo
+  const g1Activos = activos.filter(r => r.grupoPrioridad.includes('1er Grupo') || r.grupoPrioridad.includes('Grupo 01'));
+  const g2Activos = activos.filter(r => r.grupoPrioridad.includes('2do Grupo') || r.grupoPrioridad.includes('Grupo 02'));
+  const g3Activos = activos.filter(r => r.grupoPrioridad.includes('3er Grupo') || r.grupoPrioridad.includes('Grupo 03'));
+
+  $('#tabBody').innerHTML = `
+    <!-- PANEL DE RESPUESTAS EJECUTIVAS A PREGUNTAS CLAVE -->
+    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));">
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+        <div class="lbl">1. Tickets Pendientes por Sanear</div>
+        <div class="val">${fmt(tktsPendientes.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Tickets con observación de flujo o brecha técnica pendiente</div>
+      </div>
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-warn);">
+        <div class="lbl">2. Servidores a Remediar (Hardening)</div>
+        <div class="val">${fmt(servPendHardening.length)} <small style="font-size:14px;font-weight:700">servidores</small></div>
+        <div class="sub">Requeridos para completar el compliance técnico</div>
+      </div>
+      <div class="kpi-card info" style="border-left:4px solid var(--c-blue);">
+        <div class="lbl">3. Fecha Límite / Culminación</div>
+        <div class="val" style="font-size:20px;">10/Nov/2026</div>
+        <div class="sub">Fecha máxima registrada en NCI para cierre integral</div>
+      </div>
+      <div class="kpi-card ga" style="border-left:4px solid var(--c-ga);">
+        <div class="lbl">4. Principal Cuello de Botella</div>
+        <div class="val" style="font-size:18px;">3er Grupo (Hardening)</div>
+        <div class="sub">Concentra el 100% de la brecha técnica pendiente</div>
+      </div>
+    </div>
+
+    <!-- ANÁLISIS ESTRATÉGICO POR GRUPO -->
+    <div class="row r-2">
+      <div class="tile" style="border-left: 4px solid var(--k-red);">
+        <div class="th">
+          <div>
+            <h3>Estrategia y Diagnóstico por Grupo Prioritario</h3>
+            <div class="sub">Cada paquete tiene causas y soluciones completamente diferenciadas</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;font-size:12.5px;">
+          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
+            <b style="color:var(--k-red);">3er Grupo (59 Tickets / ${fmt(g3Activos.length)} Serv. Activos):</b><br>
+            • <b>Diagnóstico:</b> Los tickets están aprobados/cerrados en banco, pero <b>131 servidores destino tienen pendiente el Hardening S.O</b> y 45 el de Subsistema.<br>
+            • <b>Acción para Cerrar:</b> Ejecutar las OCs de remediación masiva de hardening antes del 10/11/2026.
+          </div>
+          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
+            <b style="color:var(--c-warn);">2do Grupo (37 Tickets / ${fmt(g2Activos.length)} Serv. Activos):</b><br>
+            • <b>Diagnóstico:</b> Servidores con Hardening 100% conforme. Bloqueado por <b>regularización de bajas, entrega formal a IBK y formatos</b>.<br>
+            • <b>Acción para Cerrar:</b> Gestión administrativa y tramitación de desvíos con el banco.
+          </div>
+          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
+            <b style="color:var(--c-ga);">1er Grupo (30 Tickets / ${fmt(g1Activos.length)} Serv. Activos):</b><br>
+            • <b>Diagnóstico:</b> Hardening 100% OK. Bloqueado por <b>Validación en Gestión de Activos (G.A)</b> y OCs administrativas.<br>
+            • <b>Acción para Cerrar:</b> Seguimiento a la aprobación del equipo de G.A para dar por cerrados los 24 tickets en curso.
+          </div>
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="th">
+          <div>
+            <h3>Avance Proyectado de Cierre hacia el 10 de Noviembre</h3>
+            <div class="sub">Meta: 126 Tickets / ${fmt(totActivos)} Servidores Activos Saneados</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px;padding-top:10px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
+              <span>Saneamiento Documental (Columna O / Banco):</span>
+              <span>${pct(allTkts.filter(t => !tktAllMap[t].tieneObsTicket).length, allTkts.length)}</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-fill-ok" style="width:${pct(allTkts.filter(t => !tktAllMap[t].tieneObsTicket).length, allTkts.length)};"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
+              <span>Saneamiento Técnico (Hardening 100% OK):</span>
+              <span>${pct(activos.filter(r => r.okRemSo && r.okRemSub).length, totActivos)}</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-fill-ok" style="width:${pct(activos.filter(r => r.okRemSo && r.okRemSub).length, totActivos)};background:var(--c-blue);"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
+              <span>Entrega Formal y Aceptada IBK (SLA 7 Días):</span>
+              <span>${pct(activos.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length, totActivos)}</span>
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-fill-ok" style="width:${pct(activos.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length, totActivos)};background:var(--c-ok);"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CALENDARIO DE HITOS Y REMEDIACIÓN -->
+    <div class="tile">
+      <div class="th">
+        <div>
+          <h3>Calendario de Hitos y Plan de Saneamiento (Fechas de Corte)</h3>
+          <div class="sub">Evidencia de fechas meta, servidores comprometidos y tickets que se liberan con cada entrega</div>
+        </div>
+      </div>
+      <div class="tw">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Hito / Ventana de Remediación</th>
+              <th>Grupo / Alcance</th>
+              <th>Fecha Meta de Compromiso</th>
+              <th class="num">Servidores en Alcance</th>
+              <th class="num">Tickets Impactados</th>
+              <th>Tipo de Regularización Requerida</th>
+              <th>Estado Actual del Hito</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight:700;color:var(--k-red);">Hito 1: Gestión de Activos</td>
+              <td><span class="badge badge-neutral">1er Grupo</span></td>
+              <td><b>En curso (Validación G.A)</b></td>
+              <td class="num font-weight:700;">63 serv.</td>
+              <td class="num font-weight:700;color:var(--c-ga);">24 tickets</td>
+              <td>Aprobación de expedientes en Gestión de Activos (G.A)</td>
+              <td><span class="badge badge-ga">EN REVISIÓN ACTIVA</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight:700;color:var(--k-red);">Hito 2: Regularización de Bajas y Formatos</td>
+              <td><span class="badge badge-neutral">2do Grupo</span></td>
+              <td><b>30/Sep/2026</b></td>
+              <td class="num font-weight:700;">66 serv.</td>
+              <td class="num font-weight:700;color:var(--c-warn);">35 tickets</td>
+              <td>Tramitación de bajas de servidores y actas de entrega</td>
+              <td><span class="badge badge-warn">EN REGULARIZACIÓN</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight:700;color:var(--k-red);">Hito 3: Remediación Masiva Hardening S.O</td>
+              <td><span class="badge badge-neutral">3er Grupo</span></td>
+              <td><b style="color:var(--c-alert);">10/Nov/2026 (Compromiso NCI)</b></td>
+              <td class="num font-weight:700;color:var(--c-alert);">131 serv.</td>
+              <td class="num font-weight:700;color:var(--c-alert);">59 tickets</td>
+              <td>Ejecución técnica de Hardening S.O y Subsistema en ventanas de mantenimiento</td>
+              <td><span class="badge badge-alert">CRÍTICO / EN EJECUCIÓN</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderHardening() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
-
   const activos = dedup.filter(r => !r.esServidorDesestimado);
   const totActivos = activos.length || 1;
 
@@ -1853,24 +1994,15 @@ function renderHardening() {
     }
   });
 
-  // FUNCIÓN DE VALOR PARA ORDENAR POR ESTADO CALCULADO
   const getComputedSortVal = (r, colKey) => {
-    if (colKey === 'remSo') {
-      return isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'CONFORME' : 'PENDIENTE');
-    }
-    if (colKey === 'remSub') {
-      return isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'CONFORME' : 'PENDIENTE');
-    }
-    if (colKey === 'parchado') {
-      return isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'CONFORME' : 'PENDIENTE');
-    }
+    if (colKey === 'remSo') return isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'CONFORME' : 'PENDIENTE');
+    if (colKey === 'remSub') return isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'CONFORME' : 'PENDIENTE');
+    if (colKey === 'parchado') return isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'CONFORME' : 'PENDIENTE');
     if (colKey === 'compliance') {
       if (r.esServidorDesestimado) return 'N/A';
       return r.isServerCompliant ? 'CONFORME' : ('PENDIENTE: ' + r.controlesFaltantes.join(', '));
     }
-    if (colKey === 'estadoEntrega') {
-      return r.estadoEntrega || '';
-    }
+    if (colKey === 'estadoEntrega') return r.estadoEntrega || '';
     return r[colKey] != null ? r[colKey] : '';
   };
 
@@ -2627,6 +2759,7 @@ function render() {
   const views = {
     cockpit: renderCockpit,
     entregables: renderEntregables,
+    cronograma: renderCronograma,
     hardening: renderHardening,
     qbreakdown: renderQBreakdown,
     grupos: renderGrupos,
@@ -2642,6 +2775,7 @@ function render() {
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
+    cronograma: '📅 Plan Estratégico de Cierre & Cronograma de Hitos',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
     grupos: 'Distribución por Grupos Prioritarios',
@@ -2737,6 +2871,7 @@ function initEvents() {
       'Monitoreo': isNA(r.mon) ? 'N/A' : (r.okMon ? 'SI' : 'NO'),
       'Compliance Servidor': r.isServerCompliant ? 'OK' : 'PENDIENTE',
       'NCI': r.nci,
+      'Fecha NCI': r.fechaNci,
       '¿Qué Falta?': r.queFalta
     })));
     const wb = XLSX.utils.book_new();
