@@ -205,6 +205,26 @@ table.dt th {
   white-space: nowrap;
   box-shadow: 0 1px 0 var(--k-line);
 }
+
+table.dt th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+table.dt th.sortable:hover {
+  background: #333333;
+}
+table.dt th.sortable .sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9px;
+  color: #FF8F80;
+}
+table.dt th.sortable.sorted-col {
+  background: #2D2D2D;
+  border-bottom: 2px solid var(--k-red);
+}
+
 table.dt th.num, table.dt td.num { text-align: right; }
 table.dt td { padding: 8px 10px; border-bottom: 1px solid var(--k-line-subtle); color: var(--k-black); background: #fff; }
 table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
@@ -322,7 +342,6 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       <div class="filters-bar" id="filtersBar">
         <div class="sl"><label>Trimestre (Q - IBK)</label><select id="fQ"></select></div>
 
-        <!-- FILTRO DINÁMICO POR COLUMNA "GRUPO" -->
         <div class="sl">
           <label>Grupo Prioridad (Múltiple)</label>
           <button type="button" class="multi-btn" id="btnGruposToggle">
@@ -454,6 +473,10 @@ const state = {
     nci: '__ALL__',
     entrega: '__ALL__',
     ambientes: new Set()
+  },
+  sortHardening: {
+    col: 'ambiente',
+    asc: true
   }
 };
 
@@ -538,12 +561,9 @@ function normalizeData(rows) {
     };
 
     const q = getVal('Q - IBK', 'Q-IBK', 'Q') || 'Sin Q';
-    
-    // Extracción limpia del Ticket tal cual está registrado en Excel
     const tktRaw = getVal('Ticket de Aprovisionamiento');
     const tktClean = tktRaw.replace(/\.0$/, '').trim();
 
-    // LECTURA DINÁMICA DE LA COLUMNA "GRUPO" DEL EXCEL
     const grupoExcel = getVal('Grupo', 'Grupo Prioridad', 'Grupo de Prioridad', 'Grupo_Prioridad', 'Grupos');
     const grupoPrioridad = grupoExcel ? grupoExcel : 'Sin Grupo';
 
@@ -712,6 +732,9 @@ function normalizeData(rows) {
       grupoPrioridad,
       estadoEntrega,
       etiqCat,
+      remSo,
+      remSub,
+      parchado,
       esServidorEntregadoIBK,
       esServidorDesestimado,
       esRechazadoNoAceptado,
@@ -721,9 +744,9 @@ function normalizeData(rows) {
       ticketSinObservacion,
       okQualys, qualys,
       okAv, av,
-      okRemSo, remSo,
-      okParchado, parchado,
-      okRemSub, remSub,
+      okRemSo,
+      okParchado,
+      okRemSub,
       okBkp, bkp, ticketBkp,
       okMon, mon,
       isServerCompliant,
@@ -782,7 +805,6 @@ function initFilters() {
   fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
-  // LECTURA DINÁMICA DE GRUPOS DESDE LA COLUMNA "GRUPO"
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
   state.filters.grupos = new Set(allGruposKeys);
 
@@ -937,7 +959,6 @@ function initFilters() {
   };
 }
 
-// CÓMPUTO DE TICKETS
 function computeTicketsMap(rows) {
   const tktMap = {};
   rows.forEach(r => {
@@ -994,7 +1015,6 @@ function renderKPIs() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
   const totServers = dedup.length;
-  const totRows = v.length;
 
   const tktMap = computeTicketsMap(v);
   const allTktsList = Object.keys(tktMap);
@@ -1144,7 +1164,6 @@ function renderCockpit() {
     { code: 'DOBLE_BRECHA', label: '🚨 Doble Brecha (Ambos Mal)', count: cDobleBrecha, color: '#BA1A1A' }
   ];
 
-  // FILTRADO DINÁMICO: SOLO MOSTRAR CATEGORÍAS CON COUNT > 0 EN EL GRÁFICO Y EN LA LEYENDA
   const activeMatriz = allMatriz.filter(x => x.count > 0);
 
   const tktAllMap = computeTicketsMap(v);
@@ -1281,7 +1300,6 @@ function renderCockpit() {
     </div>
   `;
 
-  // 1. Dona: Matriz de Saneamiento (Leyenda y segmentos limpios sin categorías en 0)
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
     data: {
@@ -1326,7 +1344,6 @@ function renderCockpit() {
     }
   });
 
-  // 2. Dona: Tickets con Observación vs Sin Observación
   state.charts.obsAprov = new Chart($('#cObsAprov'), {
     type: 'doughnut',
     data: {
@@ -1357,7 +1374,6 @@ function renderCockpit() {
     }
   });
 
-  // 3. Dona: Compliance Técnico
   state.charts.complianceDoughnut = new Chart($('#cComplianceDoughnut'), {
     type: 'doughnut',
     data: {
@@ -1410,7 +1426,6 @@ function renderCockpit() {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
 
-  // 4. Dona: Estado de Entrega
   state.charts.entrega = new Chart($('#cEntrega'), {
     type: 'doughnut',
     data: {
@@ -1443,7 +1458,7 @@ function renderCockpit() {
 }
 
 function renderEntregables() {
-  let pool = state.raw;
+  let pool = state.view;
   if (state.filters.q !== '__ALL__') pool = pool.filter(r => r.q === state.filters.q);
   if (state.filters.grupos && state.filters.grupos.size > 0) {
     pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
@@ -1571,7 +1586,6 @@ function renderEntregables() {
     </div>
   `;
 
-  // 5. Dona: Entregables vs No Entregables (Solo muestra categorías > 0)
   const allEntregablesData = [
     { label: 'Entregable (100% Limpio)', tCount: cantEntregables, sCount: servEntregables, color: '#107C41' },
     { label: 'No Entregable (Con Brecha/Obs)', tCount: cantNoEntregables, sCount: servNoEntregables, color: '#BA1A1A' },
@@ -1676,6 +1690,7 @@ function renderEntregables() {
 function renderHardening() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
+
   const activos = dedup.filter(r => !r.esServidorDesestimado);
   const totActivos = activos.length || 1;
 
@@ -1699,6 +1714,11 @@ function renderHardening() {
       qHardSubData.push(sInQ.filter(r => !r.okRemSub).length);
     }
   });
+
+  const getSortIcon = (colKey) => {
+    if (state.sortHardening.col !== colKey) return '<span class="sort-arrow">↕</span>';
+    return state.sortHardening.asc ? '<span class="sort-arrow">▲</span>' : '<span class="sort-arrow">▼</span>';
+  };
 
   $('#tabBody').innerHTML = `
     <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));">
@@ -1749,7 +1769,7 @@ function renderHardening() {
       <div class="th" style="flex-wrap:wrap; gap:10px;">
         <div>
           <h3>Plan de Acción: Servidores que Requieren Hardening & Compliance</h3>
-          <div class="sub">Muestra la lista detallada de máquinas que impiden cerrar el ticket de aprovisionamiento</div>
+          <div class="sub">Haz clic en cualquier cabecera (ej. <b>Hardening Subsistema</b>, <b>Ambiente</b>) para ordenar A-Z / Z-A</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="tbSearchHard" placeholder="Buscar servidor, ticket o S.O..." style="min-width:230px;">
@@ -1763,21 +1783,21 @@ function renderHardening() {
         </div>
       </div>
       <div class="tw" style="max-height: 520px;">
-        <table class="dt">
+        <table class="dt" id="tblHardening">
           <thead>
             <tr>
-              <th>Servidor Destino</th>
-              <th>Servidor Origen</th>
-              <th>Ticket Aprov.</th>
-              <th>S.O. Familia</th>
-              <th>Ambiente</th>
-              <th>Q</th>
-              <th>Hardening S.O</th>
-              <th>Hardening Subsistema</th>
-              <th>Parchado</th>
+              <th class="sortable" data-col="hostDestino">Servidor Destino ${getSortIcon('hostDestino')}</th>
+              <th class="sortable" data-col="servidor">Servidor Origen ${getSortIcon('servidor')}</th>
+              <th class="sortable" data-col="ticketAprov">Ticket Aprov. ${getSortIcon('ticketAprov')}</th>
+              <th class="sortable" data-col="soFamilia">S.O. Familia ${getSortIcon('soFamilia')}</th>
+              <th class="sortable" data-col="ambiente">Ambiente ${getSortIcon('ambiente')}</th>
+              <th class="sortable" data-col="q">Q ${getSortIcon('q')}</th>
+              <th class="sortable" data-col="remSo">Hardening S.O ${getSortIcon('remSo')}</th>
+              <th class="sortable" data-col="remSub">Hardening Subsistema ${getSortIcon('remSub')}</th>
+              <th class="sortable" data-col="parchado">Parchado ${getSortIcon('parchado')}</th>
               <th>Otros Controles</th>
-              <th>Estado de Entrega</th>
-              <th>Acción Requerida / Faltante</th>
+              <th class="sortable" data-col="estadoEntrega">Estado de Entrega ${getSortIcon('estadoEntrega')}</th>
+              <th class="sortable" data-col="compliance">Acción Requerida / Faltante ${getSortIcon('compliance')}</th>
             </tr>
           </thead>
           <tbody id="tbodyHardening"></tbody>
@@ -1819,9 +1839,7 @@ function renderHardening() {
       }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
+      responsive: true, maintainAspectRatio: false, plugins: {
         legend: { position: 'right' },
         tooltip: {
           callbacks: {
@@ -1835,8 +1853,41 @@ function renderHardening() {
     }
   });
 
+  // FUNCIÓN DE VALOR PARA ORDENAR POR ESTADO CALCULADO
+  const getComputedSortVal = (r, colKey) => {
+    if (colKey === 'remSo') {
+      return isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'CONFORME' : 'PENDIENTE');
+    }
+    if (colKey === 'remSub') {
+      return isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'CONFORME' : 'PENDIENTE');
+    }
+    if (colKey === 'parchado') {
+      return isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'CONFORME' : 'PENDIENTE');
+    }
+    if (colKey === 'compliance') {
+      if (r.esServidorDesestimado) return 'N/A';
+      return r.isServerCompliant ? 'CONFORME' : ('PENDIENTE: ' + r.controlesFaltantes.join(', '));
+    }
+    if (colKey === 'estadoEntrega') {
+      return r.estadoEntrega || '';
+    }
+    return r[colKey] != null ? r[colKey] : '';
+  };
+
+  const sortDataset = (list, colKey, isAsc) => {
+    return [...list].sort((a, b) => {
+      let valA = String(getComputedSortVal(a, colKey)).toLowerCase();
+      let valB = String(getComputedSortVal(b, colKey)).toLowerCase();
+
+      if (valA < valB) return isAsc ? -1 : 1;
+      if (valA > valB) return isAsc ? 1 : -1;
+      return 0;
+    });
+  };
+
   const paintHardRows = (list) => {
-    $('#tbodyHardening').innerHTML = list.slice(0, 300).map(r => `
+    const sortedList = sortDataset(list, state.sortHardening.col, state.sortHardening.asc);
+    $('#tbodyHardening').innerHTML = sortedList.slice(0, 300).map(r => `
       <tr onclick="drillServer(${r._id})">
         <td class="mono font-weight:700;color:var(--k-red);">${esc(r.hostDestino)}</td>
         <td class="mono" style="color:var(--k-slate);">${esc(r.servidor)}</td>
@@ -1874,8 +1925,6 @@ function renderHardening() {
     `).join('') + (list.length > 300 ? `<tr><td colspan="12" style="text-align:center;padding:10px;font-style:italic;color:var(--k-slate);">Mostrando primeros 300 servidores...</td></tr>` : '');
   };
 
-  paintHardRows(conCualquierBrecha);
-
   const filterHardTable = () => {
     const qStr = norm($('#tbSearchHard').value);
     const selTipo = $('#selFiltroTipoBrecha').value;
@@ -1893,6 +1942,7 @@ function renderHardening() {
         norm(r.servidor).includes(qStr) || 
         norm(r.ticketAprov).includes(qStr) ||
         norm(r.soFamilia).includes(qStr) ||
+        norm(r.ambiente).includes(qStr) ||
         norm(r.q).includes(qStr) ||
         r.controlesFaltantes.some(c => norm(c).includes(qStr))
       );
@@ -1900,8 +1950,34 @@ function renderHardening() {
     paintHardRows(filtered);
   };
 
+  $$('#tblHardening th.sortable').forEach(th => {
+    th.onclick = () => {
+      const colKey = th.dataset.col;
+      if (state.sortHardening.col === colKey) {
+        state.sortHardening.asc = !state.sortHardening.asc;
+      } else {
+        state.sortHardening.col = colKey;
+        state.sortHardening.asc = true;
+      }
+      $$('#tblHardening th.sortable').forEach(header => {
+        const k = header.dataset.col;
+        header.classList.remove('sorted-col');
+        const arrow = header.querySelector('.sort-arrow');
+        if (k === state.sortHardening.col) {
+          header.classList.add('sorted-col');
+          if (arrow) arrow.textContent = state.sortHardening.asc ? '▲' : '▼';
+        } else {
+          if (arrow) arrow.textContent = '↕';
+        }
+      });
+      filterHardTable();
+    };
+  });
+
   $('#tbSearchHard').oninput = filterHardTable;
   $('#selFiltroTipoBrecha').onchange = filterHardTable;
+
+  filterHardTable();
 }
 
 function abrirAuditoriaTicket(tktNum) {
@@ -2082,7 +2158,6 @@ function renderQBreakdown() {
   `;
 }
 
-// PESTAÑA DINÁMICA DE GRUPOS
 function renderGrupos() {
   const v = state.view;
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
@@ -2520,7 +2595,7 @@ function drillServer(id) {
         ${renderControlChip('Hardening S.O', r.remSo, r.okRemSo, '', esDesest)}
         ${renderControlChip('Parchado', r.parchado, r.okParchado, '', esDesest)}
         ${renderControlChip('Subsistema', r.remSub, r.okRemSub, '', esDesest)}
-        ${renderControlChip('Backup', r.bkp, r.okBkp, r.ticketBkp && r.ticketBkp !== 'Sin ticket' ? `Tkt: ${s.ticketBkp}` : '', esDesest)}
+        ${renderControlChip('Backup', r.bkp, r.okBkp, r.ticketBkp && r.ticketBkp !== 'Sin ticket' ? `Tkt: ${r.ticketBkp}` : '', esDesest)}
         ${renderControlChip('Monitoreo', r.mon, r.okMon, '', esDesest)}
       </div>
     </div>
