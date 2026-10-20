@@ -209,11 +209,7 @@ table.dt th {
   box-shadow: 0 1px 0 var(--k-line);
 }
 
-table.dt th.sortable {
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-}
+table.dt th.sortable { cursor: pointer; user-select: none; transition: background 0.15s; }
 table.dt th.sortable:hover { background: #333333; }
 table.dt th.sortable .sort-arrow { display: inline-block; margin-left: 4px; font-size: 9px; color: #FF8F80; }
 table.dt th.sortable.sorted-col { background: #2D2D2D; border-bottom: 2px solid var(--k-red); }
@@ -236,6 +232,34 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
 .chip-ok { background: #E8F5E9; color: #107C41; border: 1px solid #A5D6A7; }
 .chip-fail { background: #FFEBEE; color: #BA1A1A; border: 1px solid #FFCDD2; }
 .chip-na { background: #F5F5F5; color: #616161; border: 1px solid #E0E0E0; }
+
+/* Componente de Calendario Mensual */
+.cal-container { display: flex; flex-direction: column; gap: 14px; }
+.cal-nav-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #FAF8F5; border: 1px solid var(--k-line); padding: 10px 14px;
+  border-radius: 8px; flex-wrap: wrap; gap: 12px;
+}
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-day-head { text-align: center; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--k-slate); padding: 4px 0; }
+.cal-cell {
+  background: #fff; border: 1px solid var(--k-line); border-radius: 6px;
+  min-height: 85px; padding: 6px; display: flex; flex-direction: column;
+  transition: all 0.15s;
+}
+.cal-cell.clickable-day { cursor: pointer; }
+.cal-cell.clickable-day:hover { border-color: var(--k-red); background: #FFF9F7; }
+.cal-cell.active-day { border: 2px solid var(--k-red); background: #FFF4F2; box-shadow: 0 4px 12px rgba(255,70,45,0.15); }
+.cal-cell.has-events { border-left: 3px solid var(--k-red); }
+.cal-cell.empty { background: transparent; border-color: transparent; cursor: default; }
+.cal-day-num { font-size: 12px; font-weight: 700; color: var(--k-charcoal); margin-bottom: 4px; }
+.cal-tag {
+  font-size: 10.5px; font-weight: 700; padding: 3px 6px; border-radius: 4px;
+  margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+}
+.cal-tag-ok { background: var(--c-ok-bg); color: var(--c-ok); border: 1px solid var(--c-ok); }
+.cal-tag-pend { background: var(--c-alert-bg); color: var(--c-alert); border: 1px solid var(--c-alert); }
 
 .gate {
   position: fixed; inset: 0; background: rgba(18,18,18,0.85); backdrop-filter: blur(6px);
@@ -303,7 +327,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     <div class="navlist">
       <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
       <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
-      <button class="navbtn" data-tab="cronograma">📅 Plan de Cierre & Cronograma</button>
+      <button class="navbtn" data-tab="cronograma">📅 Calendario de Remediación</button>
       <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
       <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
       <button class="navbtn" data-tab="grupos">Distribución por Grupos</button>
@@ -455,10 +479,9 @@ const state = {
     entrega: '__ALL__',
     ambientes: new Set()
   },
-  sortHardening: {
-    col: 'ambiente',
-    asc: true
-  }
+  sortHardening: { col: 'ambiente', asc: true },
+  selectedCalMonth: '2026-10',
+  selectedCalDay: null
 };
 
 const $ = s => document.querySelector(s);
@@ -687,6 +710,28 @@ function normalizeData(rows) {
 
     const fechaRemSoRaw = getVal('Fecha de Remediacion S.O', 'Fecha Remediacion S.O');
     const fechaRemSoObj = parseToDateObj(fechaRemSoRaw);
+    const ocRemSo = getVal('OC Remediacion S.O', 'OC Remediacion');
+
+    const normRemSo = norm(remSo);
+    const normFecSo = norm(fechaRemSoRaw);
+
+    let estadoRemediacionSO = 'PENDIENTE';
+    let detalleNoAplicaSO = '';
+
+    if (normRemSo === 'si' || normRemSo === 'sí' || normRemSo === 'ok' || normRemSo === 'conforme') {
+      estadoRemediacionSO = 'REMEDIADO';
+    } else if (normRemSo.includes('windows 2008') || normRemSo.includes('obsoleto') || soTexto.includes('windows server 2008') || normFecSo.includes('2008')) {
+      estadoRemediacionSO = 'NO_APLICA';
+      detalleNoAplicaSO = 'Obsoleto Windows 2008';
+    } else if (esServidorDesestimado || normRemSo.includes('desestimad')) {
+      estadoRemediacionSO = 'NO_APLICA';
+      detalleNoAplicaSO = 'Servidor Desestimado';
+    } else if (isNA(remSo) || isNA(fechaRemSoRaw)) {
+      estadoRemediacionSO = 'NO_APLICA';
+      detalleNoAplicaSO = 'Exento / No Aplica';
+    } else {
+      estadoRemediacionSO = 'PENDIENTE';
+    }
 
     return {
       _id: i + 1,
@@ -709,6 +754,11 @@ function normalizeData(rows) {
       remSo,
       remSub,
       parchado,
+      fechaRemSo: fmtFecha(fechaRemSoRaw),
+      fechaRemSoObj,
+      ocRemSo,
+      estadoRemediacionSO,
+      detalleNoAplicaSO,
       esServidorEntregadoIBK,
       esServidorDesestimado,
       esRechazadoNoAceptado,
@@ -730,14 +780,94 @@ function normalizeData(rows) {
       nci: nciFormateado,
       fechaNci: fmtFecha(fechaNciRaw),
       fechaNciObj,
-      fechaRemSo: fmtFecha(fechaRemSoRaw),
-      fechaRemSoObj,
       catReg: getVal('Categoria de Regularizacion', 'Categoria de Regularizacion ') || 'Sin regularizar',
       queFalta,
       fechaEntrega: fmtFecha(fechaEntregaRaw),
       fechaEntregaObj,
       diasHabiles,
       supero7Dias
+    };
+  });
+}
+
+function computeTicketsMap(rows) {
+  const tktMap = {};
+  rows.forEach(r => {
+    const t = r.ticketAprov;
+    if (!t) return;
+    if (!tktMap[t]) {
+      tktMap[t] = {
+        ticket: t,
+        grupo: r.grupoPrioridad,
+        q: r.q,
+        servidores: [],
+        total: 0,
+        entregados: 0,
+        desestimados: 0,
+        pendientesEntrega: 0,
+        conBrechaTecnica: 0,
+        tieneObsTicket: false,
+        esPendienteGA: false,
+        estadosObsTexto: new Set(),
+        queFaltaTextos: new Set()
+      };
+    }
+    tktMap[t].servidores.push(r);
+    tktMap[t].total++;
+
+    if (r.esServidorDesestimado) {
+      tktMap[t].desestimados++;
+    } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
+      tktMap[t].entregados++;
+    } else {
+      tktMap[t].pendientesEntrega++;
+    }
+
+    if (!r.isServerCompliant && !r.esServidorDesestimado) tktMap[t].conBrechaTecnica++;
+
+    if (r.tieneObservacionAprov) {
+      tktMap[t].tieneObsTicket = true;
+      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+    }
+    if (r.esPendienteGA) {
+      tktMap[t].esPendienteGA = true;
+      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
+    }
+    if (r.queFalta) tktMap[t].queFaltaTextos.add(r.queFalta);
+  });
+  return tktMap;
+}
+
+function computeTicketsEntregables(rows) {
+  const tktMap = computeTicketsMap(rows);
+  return Object.values(tktMap).map(item => {
+    let estadoTicket = 'No Entregable';
+    let codigo = 'NO_ENTREGABLE';
+    let motivosRechazo = [];
+
+    if (item.total > 0 && item.desestimados === item.total) {
+      estadoTicket = 'Desestimado';
+      codigo = 'DESESTIMADO';
+    } else {
+      if (item.tieneObsTicket) motivosRechazo.push('Ticket con Desvío/Observación');
+      if (item.esPendienteGA) motivosRechazo.push('Ticket en Validación G.A');
+      if (item.pendientesEntrega > 0) motivosRechazo.push(`${item.pendientesEntrega} serv. no entregado(s)`);
+      if (item.conBrechaTecnica > 0) motivosRechazo.push(`${item.conBrechaTecnica} serv. sin compliance`);
+
+      if (motivosRechazo.length === 0 && item.entregados > 0) {
+        estadoTicket = 'Entregable';
+        codigo = 'ENTREGABLE';
+      } else {
+        estadoTicket = 'No Entregable';
+        codigo = 'NO_ENTREGABLE';
+      }
+    }
+
+    return {
+      ...item,
+      estadoTicket,
+      codigo,
+      motivosStr: motivosRechazo.length > 0 ? motivosRechazo.join(' | ') : 'Cumple 100% requisitos'
     };
   });
 }
@@ -918,55 +1048,6 @@ function initFilters() {
   };
 }
 
-function computeTicketsMap(rows) {
-  const tktMap = {};
-  rows.forEach(r => {
-    const t = r.ticketAprov;
-    if (!t) return;
-    if (!tktMap[t]) {
-      tktMap[t] = {
-        ticket: t,
-        grupo: r.grupoPrioridad,
-        q: r.q,
-        servidores: [],
-        total: 0,
-        entregados: 0,
-        desestimados: 0,
-        pendientesEntrega: 0,
-        conBrechaTecnica: 0,
-        tieneObsTicket: false,
-        esPendienteGA: false,
-        estadosObsTexto: new Set(),
-        queFaltaTextos: new Set()
-      };
-    }
-    tktMap[t].servidores.push(r);
-    tktMap[t].total++;
-
-    if (r.esServidorDesestimado) {
-      tktMap[t].desestimados++;
-    } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
-      tktMap[t].entregados++;
-    } else {
-      tktMap[t].pendientesEntrega++;
-    }
-
-    if (!r.isServerCompliant && !r.esServidorDesestimado) tktMap[t].conBrechaTecnica++;
-
-    if (r.tieneObservacionAprov) {
-      tktMap[t].tieneObsTicket = true;
-      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
-    }
-    if (r.esPendienteGA) {
-      tktMap[t].esPendienteGA = true;
-      if (r.estadoAprov) tktMap[t].estadosObsTexto.add(r.estadoAprov);
-    }
-    if (r.queFalta) tktMap[t].queFaltaTextos.add(r.queFalta);
-  });
-  return tktMap;
-}
-
-// NAVEGACIÓN DIRECTA AL HACER CLIC EN LAS TARJETAS KPI
 function irADetalleConFiltro(estadoTkt) {
   state.tab = 'entregables';
   $$('.navbtn').forEach(b => b.classList.remove('on'));
@@ -1045,7 +1126,7 @@ function renderKPIs() {
     <div class="kpi-card ok clickable" onclick="irADetalleConFiltro('ENTREGABLE')" title="Haz clic para ver los tickets Entregables 100% Limpios">
       <div class="lbl">Tickets Aprov. Todo OK ↗</div>
       <div class="val">${fmt(tktsAmbosOk)} <small style="font-size:14px;font-weight:700">(${pctOk})</small></div>
-      <div class="sub">100% Cerrado y Validado (Clic para ir)</div>
+      <div class="sub">100% Cerrado y Validado</div>
     </div>
     <div class="kpi-card ga clickable" onclick="irADetalleConFiltro('NO_ENTREGABLE')" title="Haz clic para ver tickets pendientes en G.A">
       <div class="lbl">Tickets Pend. Validación G.A ↗</div>
@@ -1083,40 +1164,6 @@ function renderKPIs() {
       <div class="sub">Servidor No Comp. + Ticket Obs.</div>
     </div>
   `;
-}
-
-function computeTicketsEntregables(rows) {
-  const tktMap = computeTicketsMap(rows);
-  return Object.values(tktMap).map(item => {
-    let estadoTicket = 'No Entregable';
-    let codigo = 'NO_ENTREGABLE';
-    let motivosRechazo = [];
-
-    if (item.total > 0 && item.desestimados === item.total) {
-      estadoTicket = 'Desestimado';
-      codigo = 'DESESTIMADO';
-    } else {
-      if (item.tieneObsTicket) motivosRechazo.push('Ticket con Desvío/Observación');
-      if (item.esPendienteGA) motivosRechazo.push('Ticket en Validación G.A');
-      if (item.pendientesEntrega > 0) motivosRechazo.push(`${item.pendientesEntrega} serv. no entregado(s)`);
-      if (item.conBrechaTecnica > 0) motivosRechazo.push(`${item.conBrechaTecnica} serv. sin compliance`);
-
-      if (motivosRechazo.length === 0 && item.entregados > 0) {
-        estadoTicket = 'Entregable';
-        codigo = 'ENTREGABLE';
-      } else {
-        estadoTicket = 'No Entregable';
-        codigo = 'NO_ENTREGABLE';
-      }
-    }
-
-    return {
-      ...item,
-      estadoTicket,
-      codigo,
-      motivosStr: motivosRechazo.length > 0 ? motivosRechazo.join(' | ') : 'Cumple 100% requisitos'
-    };
-  });
 }
 
 function renderCockpit() {
@@ -1657,14 +1704,25 @@ function renderEntregables() {
   $('#selFiltroTktEstado').onchange = filterTktTable;
 }
 
-// -----------------------------------------------------------------------------------
-// NUEVA PESTAÑA: 📅 PLAN DE CIERRE & CRONOGRAMA DE HITOS
-// -----------------------------------------------------------------------------------
+function filtrarTablaPorDia(day) {
+  if (state.selectedCalDay === day) {
+    state.selectedCalDay = null;
+  } else {
+    state.selectedCalDay = day;
+  }
+  renderCronograma();
+}
+
+function cambiarMesCalendario(mesKey) {
+  state.selectedCalMonth = mesKey;
+  state.selectedCalDay = null;
+  renderCronograma();
+}
+
 function renderCronograma() {
   const v = state.view;
   const dedup = dedupeByDestServer(v);
   const activos = dedup.filter(r => !r.esServidorDesestimado);
-  const totActivos = activos.length || 1;
 
   const tktAllMap = computeTicketsMap(v);
   const allTkts = Object.keys(tktAllMap);
@@ -1674,159 +1732,192 @@ function renderCronograma() {
     return item.tieneObsTicket || item.conBrechaTecnica > 0 || item.pendientesEntrega > 0;
   });
 
-  const servPendHardening = activos.filter(r => !r.okRemSo || !r.okRemSub);
+  const servPendHardening = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
 
-  // Desglose por grupo
-  const g1Activos = activos.filter(r => r.grupoPrioridad.includes('1er Grupo') || r.grupoPrioridad.includes('Grupo 01'));
-  const g2Activos = activos.filter(r => r.grupoPrioridad.includes('2do Grupo') || r.grupoPrioridad.includes('Grupo 02'));
-  const g3Activos = activos.filter(r => r.grupoPrioridad.includes('3er Grupo') || r.grupoPrioridad.includes('Grupo 03'));
+  const mesesDisponibles = [
+    { key: '2026-06', label: 'Junio 2026' },
+    { key: '2026-07', label: 'Julio 2026' },
+    { key: '2026-08', label: 'Agosto 2026' },
+    { key: '2026-09', label: 'Septiembre 2026' },
+    { key: '2026-10', label: 'Octubre 2026' },
+    { key: 'PEND_PROG', label: 'Sin Fecha Asignada' },
+    { key: 'NO_APLICA', label: 'Exentos (No Aplica)' }
+  ];
+
+  if (!state.selectedCalMonth) state.selectedCalMonth = '2026-10';
+  if (state.selectedCalDay === undefined) state.selectedCalDay = null;
+
+  let servidoresEnMes = [];
+  if (state.selectedCalMonth === 'PEND_PROG') {
+    servidoresEnMes = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE' && !r.fechaRemSoObj);
+  } else if (state.selectedCalMonth === 'NO_APLICA') {
+    servidoresEnMes = dedup.filter(r => r.estadoRemediacionSO === 'NO_APLICA');
+  } else {
+    servidoresEnMes = dedup.filter(r => {
+      if (!r.fechaRemSoObj) return false;
+      const y = r.fechaRemSoObj.getFullYear();
+      const m = String(r.fechaRemSoObj.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}` === state.selectedCalMonth;
+    });
+  }
+
+  let servidoresEnTabla = servidoresEnMes;
+  if (state.selectedCalMonth !== 'PEND_PROG' && state.selectedCalMonth !== 'NO_APLICA' && state.selectedCalDay) {
+    servidoresEnTabla = servidoresEnMes.filter(s => s.fechaRemSoObj && s.fechaRemSoObj.getDate() === state.selectedCalDay);
+  }
+
+  let calendarioHtml = '';
+  if (state.selectedCalMonth !== 'PEND_PROG' && state.selectedCalMonth !== 'NO_APLICA') {
+    const [yStr, mStr] = state.selectedCalMonth.split('-');
+    const year = parseInt(yStr, 10);
+    const month = parseInt(mStr, 10) - 1;
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const eventosPorDia = {};
+    servidoresEnMes.forEach(s => {
+      if (!s.fechaRemSoObj) return;
+      const dia = s.fechaRemSoObj.getDate();
+      if (!eventosPorDia[dia]) eventosPorDia[dia] = [];
+      eventosPorDia[dia].push(s);
+    });
+
+    const dayHeaders = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    let cellsHtml = '';
+
+    for (let i = 0; i < firstDay; i++) {
+      cellsHtml += `<div class="cal-cell empty"></div>`;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const evs = eventosPorDia[day] || [];
+      const hasEvents = evs.length > 0;
+      const isActive = state.selectedCalDay === day;
+
+      let badgesHtml = '';
+      if (hasEvents) {
+        const okCount = evs.filter(e => e.estadoRemediacionSO === 'REMEDIADO').length;
+        const pendCount = evs.length - okCount;
+        if (pendCount > 0) badgesHtml += `<div class="cal-tag cal-tag-pend">⏳ ${pendCount} Pendientes</div>`;
+        if (okCount > 0) badgesHtml += `<div class="cal-tag cal-tag-ok">✅ ${okCount} Conformes</div>`;
+      }
+
+      cellsHtml += `
+        <div class="cal-cell ${hasEvents ? 'has-events clickable-day' : ''} ${isActive ? 'active-day' : ''}" ${hasEvents ? `onclick="filtrarTablaPorDia(${day})"` : ''}>
+          <div class="cal-day-num">${day}</div>
+          <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+            ${badgesHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    calendarioHtml = `
+      <div class="cal-grid" style="margin-bottom:14px;">
+        ${dayHeaders.map(h => `<div class="cal-day-head">${h}</div>`).join('')}
+        ${cellsHtml}
+      </div>
+    `;
+  }
 
   $('#tabBody').innerHTML = `
-    <!-- PANEL DE RESPUESTAS EJECUTIVAS A PREGUNTAS CLAVE -->
-    <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));">
-      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
-        <div class="lbl">1. Tickets Pendientes por Sanear</div>
-        <div class="val">${fmt(tktsPendientes.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
-        <div class="sub">Tickets con observación de flujo o brecha técnica pendiente</div>
-      </div>
-      <div class="kpi-card alert" style="border-left:4px solid var(--c-warn);">
-        <div class="lbl">2. Servidores a Remediar (Hardening)</div>
-        <div class="val">${fmt(servPendHardening.length)} <small style="font-size:14px;font-weight:700">servidores</small></div>
-        <div class="sub">Requeridos para completar el compliance técnico</div>
-      </div>
-      <div class="kpi-card info" style="border-left:4px solid var(--c-blue);">
-        <div class="lbl">3. Fecha Límite / Culminación</div>
-        <div class="val" style="font-size:20px;">10/Nov/2026</div>
-        <div class="sub">Fecha máxima registrada en NCI para cierre integral</div>
-      </div>
-      <div class="kpi-card ga" style="border-left:4px solid var(--c-ga);">
-        <div class="lbl">4. Principal Cuello de Botella</div>
-        <div class="val" style="font-size:18px;">3er Grupo (Hardening)</div>
-        <div class="sub">Concentra el 100% de la brecha técnica pendiente</div>
-      </div>
-    </div>
-
-    <!-- ANÁLISIS ESTRATÉGICO POR GRUPO -->
     <div class="row r-2">
-      <div class="tile" style="border-left: 4px solid var(--k-red);">
-        <div class="th">
-          <div>
-            <h3>Estrategia y Diagnóstico por Grupo Prioritario</h3>
-            <div class="sub">Cada paquete tiene causas y soluciones completamente diferenciadas</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px;font-size:12.5px;">
-          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
-            <b style="color:var(--k-red);">3er Grupo (59 Tickets / ${fmt(g3Activos.length)} Serv. Activos):</b><br>
-            • <b>Diagnóstico:</b> Los tickets están aprobados/cerrados en banco, pero <b>131 servidores destino tienen pendiente el Hardening S.O</b> y 45 el de Subsistema.<br>
-            • <b>Acción para Cerrar:</b> Ejecutar las OCs de remediación masiva de hardening antes del 10/11/2026.
-          </div>
-          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
-            <b style="color:var(--c-warn);">2do Grupo (37 Tickets / ${fmt(g2Activos.length)} Serv. Activos):</b><br>
-            • <b>Diagnóstico:</b> Servidores con Hardening 100% conforme. Bloqueado por <b>regularización de bajas, entrega formal a IBK y formatos</b>.<br>
-            • <b>Acción para Cerrar:</b> Gestión administrativa y tramitación de desvíos con el banco.
-          </div>
-          <div style="background:#FAF8F5;border:1px solid var(--k-line);padding:10px 12px;border-radius:6px;">
-            <b style="color:var(--c-ga);">1er Grupo (30 Tickets / ${fmt(g1Activos.length)} Serv. Activos):</b><br>
-            • <b>Diagnóstico:</b> Hardening 100% OK. Bloqueado por <b>Validación en Gestión de Activos (G.A)</b> y OCs administrativas.<br>
-            • <b>Acción para Cerrar:</b> Seguimiento a la aprobación del equipo de G.A para dar por cerrados los 24 tickets en curso.
-          </div>
-        </div>
+      <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
+        <div class="lbl">1. Tickets Pendientes por Sanear el Desvío</div>
+        <div class="val">${fmt(tktsPendientes.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Tickets con observación documental o brecha técnica pendiente</div>
       </div>
-
-      <div class="tile">
-        <div class="th">
-          <div>
-            <h3>Avance Proyectado de Cierre hacia el 10 de Noviembre</h3>
-            <div class="sub">Meta: 126 Tickets / ${fmt(totActivos)} Servidores Activos Saneados</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:16px;padding-top:10px;">
-          <div>
-            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
-              <span>Saneamiento Documental (Columna O / Banco):</span>
-              <span>${pct(allTkts.filter(t => !tktAllMap[t].tieneObsTicket).length, allTkts.length)}</span>
-            </div>
-            <div class="progress-bar-wrap">
-              <div class="progress-fill-ok" style="width:${pct(allTkts.filter(t => !tktAllMap[t].tieneObsTicket).length, allTkts.length)};"></div>
-            </div>
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
-              <span>Saneamiento Técnico (Hardening 100% OK):</span>
-              <span>${pct(activos.filter(r => r.okRemSo && r.okRemSub).length, totActivos)}</span>
-            </div>
-            <div class="progress-bar-wrap">
-              <div class="progress-fill-ok" style="width:${pct(activos.filter(r => r.okRemSo && r.okRemSub).length, totActivos)};background:var(--c-blue);"></div>
-            </div>
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-bottom:4px;">
-              <span>Entrega Formal y Aceptada IBK (SLA 7 Días):</span>
-              <span>${pct(activos.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length, totActivos)}</span>
-            </div>
-            <div class="progress-bar-wrap">
-              <div class="progress-fill-ok" style="width:${pct(activos.filter(r => r.estadoEntrega === 'Entregado / Aceptado').length, totActivos)};background:var(--c-ok);"></div>
-            </div>
-          </div>
-        </div>
+      <div class="kpi-card warn" style="border-left:4px solid var(--c-warn);">
+        <div class="lbl">2. Servidores por Remediar (Hardening S.O Pendiente)</div>
+        <div class="val">${fmt(servPendHardening.length)} <small style="font-size:14px;font-weight:700">servidores</small></div>
+        <div class="sub">Servidores con estado 'Pendiente' en Hardening S.O</div>
       </div>
     </div>
 
-    <!-- CALENDARIO DE HITOS Y REMEDIACIÓN -->
     <div class="tile">
-      <div class="th">
+      <div class="th" style="flex-wrap:wrap; gap:10px;">
         <div>
-          <h3>Calendario de Hitos y Plan de Saneamiento (Fechas de Corte)</h3>
-          <div class="sub">Evidencia de fechas meta, servidores comprometidos y tickets que se liberan con cada entrega</div>
+          <h3>Calendario Mensual de Remediaciones de Hardening</h3>
+          <div class="sub">Selecciona un mes en el filtro y haz clic en un día específico para ver su detalle operativo</div>
         </div>
       </div>
-      <div class="tw">
-        <table class="dt">
-          <thead>
-            <tr>
-              <th>Hito / Ventana de Remediación</th>
-              <th>Grupo / Alcance</th>
-              <th>Fecha Meta de Compromiso</th>
-              <th class="num">Servidores en Alcance</th>
-              <th class="num">Tickets Impactados</th>
-              <th>Tipo de Regularización Requerida</th>
-              <th>Estado Actual del Hito</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="font-weight:700;color:var(--k-red);">Hito 1: Gestión de Activos</td>
-              <td><span class="badge badge-neutral">1er Grupo</span></td>
-              <td><b>En curso (Validación G.A)</b></td>
-              <td class="num font-weight:700;">63 serv.</td>
-              <td class="num font-weight:700;color:var(--c-ga);">24 tickets</td>
-              <td>Aprobación de expedientes en Gestión de Activos (G.A)</td>
-              <td><span class="badge badge-ga">EN REVISIÓN ACTIVA</span></td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:var(--k-red);">Hito 2: Regularización de Bajas y Formatos</td>
-              <td><span class="badge badge-neutral">2do Grupo</span></td>
-              <td><b>30/Sep/2026</b></td>
-              <td class="num font-weight:700;">66 serv.</td>
-              <td class="num font-weight:700;color:var(--c-warn);">35 tickets</td>
-              <td>Tramitación de bajas de servidores y actas de entrega</td>
-              <td><span class="badge badge-warn">EN REGULARIZACIÓN</span></td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:var(--k-red);">Hito 3: Remediación Masiva Hardening S.O</td>
-              <td><span class="badge badge-neutral">3er Grupo</span></td>
-              <td><b style="color:var(--c-alert);">10/Nov/2026 (Compromiso NCI)</b></td>
-              <td class="num font-weight:700;color:var(--c-alert);">131 serv.</td>
-              <td class="num font-weight:700;color:var(--c-alert);">59 tickets</td>
-              <td>Ejecución técnica de Hardening S.O y Subsistema en ventanas de mantenimiento</td>
-              <td><span class="badge badge-alert">CRÍTICO / EN EJECUCIÓN</span></td>
-            </tr>
-          </tbody>
-        </table>
+
+      <div class="cal-container">
+        <div class="cal-nav-bar">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <label style="font-weight:700;font-size:12.5px;color:var(--k-charcoal);text-transform:uppercase;">Periodo / Mes de Remediación:</label>
+            <select id="selCalMes" style="min-width:220px; font-weight:700; color:var(--k-red);">
+              ${mesesDisponibles.map(m => `
+                <option value="${m.key}" ${state.selectedCalMonth === m.key ? 'selected' : ''}>
+                  ${esc(m.label)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+          <div style="font-size:12px; color:var(--k-slate);">
+            Total en este periodo: <b>${servidoresEnMes.length}</b> servidores
+          </div>
+        </div>
+
+        ${calendarioHtml}
+
+        <div style="font-weight:700;font-size:13.5px;margin-top:6px;display:flex;justify-content:space-between;align-items:center;">
+          <span>Detalle de Servidores: ${state.selectedCalDay ? `Día ${state.selectedCalDay} seleccionado` : 'Todo el periodo'} (${servidoresEnTabla.length} registros)</span>
+          ${state.selectedCalDay ? `<button class="btn btn-ghost btn-sm" onclick="filtrarTablaPorDia(null)">Quitar filtro de día</button>` : ''}
+        </div>
+
+        <div class="tw" style="max-height: 480px;">
+          <table class="dt">
+            <thead>
+              <tr>
+                <th>Servidor Destino</th>
+                <th>Servidor Origen</th>
+                <th>Fecha de Remediación S.O</th>
+                <th>Estado Remediado S.O</th>
+                <th>OC Remediación S.O</th>
+                <th>Ticket Aprov.</th>
+                <th>Grupo</th>
+                <th>Sistema Operativo</th>
+                <th>Detalle / Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${servidoresEnTabla.map(s => {
+                let badgeClass = 'badge-warn';
+                let labelEstado = 'PENDIENTE';
+                if (s.estadoRemediacionSO === 'REMEDIADO') {
+                  badgeClass = 'badge-ok';
+                  labelEstado = 'REMEDIADO (CONFORME)';
+                } else if (s.estadoRemediacionSO === 'NO_APLICA') {
+                  badgeClass = 'badge-neutral';
+                  labelEstado = s.detalleNoAplicaSO || 'NO APLICA';
+                }
+
+                return `
+                  <tr onclick="drillServer(${s._id})">
+                    <td class="mono font-weight:700;color:var(--k-red);">${esc(s.hostDestino)}</td>
+                    <td class="mono" style="color:var(--k-slate);">${esc(s.servidor)}</td>
+                    <td style="font-weight:600;">${esc(s.fechaRemSo !== '—' ? s.fechaRemSo : (s.estadoRemediacionSO === 'NO_APLICA' ? s.detalleNoAplicaSO : 'Pendiente de programar'))}</td>
+                    <td><span class="badge ${badgeClass}" style="font-weight:700;">${esc(labelEstado)}</span></td>
+                    <td class="mono">${esc(s.ocRemSo || '—')}</td>
+                    <td class="mono font-weight:700;">${esc(s.ticketAprov)}</td>
+                    <td><span class="badge badge-neutral">${esc(s.grupoPrioridad)}</span></td>
+                    <td>${esc(s.soDestino || s.so || '—')}</td>
+                    <td style="font-size:11.5px;color:var(--k-slate);">${esc(s.estadoRemediacionSO === 'NO_APLICA' ? s.detalleNoAplicaSO : (s.queFalta || '—'))}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
+
+  $('#selCalMes').onchange = (e) => {
+    cambiarMesCalendario(e.target.value);
+  };
 }
 
 function renderHardening() {
@@ -2010,7 +2101,6 @@ function renderHardening() {
     return [...list].sort((a, b) => {
       let valA = String(getComputedSortVal(a, colKey)).toLowerCase();
       let valB = String(getComputedSortVal(b, colKey)).toLowerCase();
-
       if (valA < valB) return isAsc ? -1 : 1;
       if (valA > valB) return isAsc ? 1 : -1;
       return 0;
@@ -2113,7 +2203,9 @@ function renderHardening() {
 }
 
 function abrirAuditoriaTicket(tktNum) {
-  const rowsTicket = state.raw.filter(r => r.ticketAprov === tktNum);
+  const rowsTicket = state.raw.filter(r => {
+    return (r.tktParts && r.tktParts.includes(tktNum)) || r.ticketAprov === tktNum;
+  });
   if (!rowsTicket.length) return;
   const primer = rowsTicket[0];
   const tktData = computeTicketsEntregables(rowsTicket).find(t => t.ticket === tktNum) || computeTicketsEntregables(rowsTicket)[0];
@@ -2775,7 +2867,7 @@ function render() {
   $('#viewTitle').textContent = {
     cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
-    cronograma: '📅 Plan Estratégico de Cierre & Cronograma de Hitos',
+    cronograma: '📅 Calendario Mensual de Remediación de Hardening',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
     grupos: 'Distribución por Grupos Prioritarios',
@@ -2865,6 +2957,9 @@ function initEvents() {
       'Qualys': isNA(r.qualys) ? 'N/A' : (r.okQualys ? 'SI' : 'NO'),
       'Antivirus': isNA(r.av) ? 'N/A' : (r.okAv ? 'SI' : 'NO'),
       'Remediado S.O': isNA(r.remSo) ? 'N/A' : (r.okRemSo ? 'SI' : 'NO'),
+      'Fecha Remediacion S.O': r.fechaRemSo,
+      'Estado Remediacion S.O': r.estadoRemediacionSO,
+      'OC Remediacion S.O': r.ocRemSo,
       'Parchado S.O': isNA(r.parchado) ? 'N/A' : (r.okParchado ? 'SI' : 'NO'),
       'Remediado Sub': isNA(r.remSub) ? 'N/A' : (r.okRemSub ? 'SI' : 'NO'),
       'Backup': isNA(r.bkp) ? 'N/A' : (r.okBkp ? 'SI' : 'NO'),
