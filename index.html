@@ -2593,72 +2593,175 @@ function renderGrupos() {
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
   const tktAllMap = computeTicketsMap(state.raw);
 
+  let totTkts = 0, totServs = 0;
+  let tOk = 0, sOk = 0;
+  let tGa = 0, sGa = 0;
+  let tPend = 0, sPend = 0;
+
   const groupsInfo = allGruposKeys.map(gName => {
     const subset = v.filter(r => r.grupoPrioridad === gName);
     const countTkts = Object.values(tktAllMap).filter(t => t.grupo === gName).length;
-    return { name: gName, tktCount: countTkts, subset };
+    
+    const dedup = dedupeByDestServer(subset);
+    const tktGMap = computeTicketsMap(subset);
+    const gTkts = Object.keys(tktGMap);
+
+    const tktsOk = gTkts.filter(t => {
+      const i = tktGMap[t];
+      return !i.tieneObsTicket && !i.esPendienteGA && i.pendientesEntrega === 0 && i.conBrechaTecnica === 0 && i.entregados > 0;
+    });
+    const tktsGA = gTkts.filter(t => tktGMap[t].esPendienteGA);
+    const tktsPend = gTkts.filter(t => !tktsOk.includes(t) && !tktsGA.includes(t));
+
+    const servsOk = dedup.filter(r => tktsOk.includes(r.ticketAprov)).length;
+    const servsGA = dedup.filter(r => tktsGA.includes(r.ticketAprov)).length;
+    const servsPend = dedup.filter(r => tktsPend.includes(r.ticketAprov)).length;
+
+    totTkts += countTkts; totServs += dedup.length;
+    tOk += tktsOk.length; sOk += servsOk;
+    tGa += tktsGA.length; sGa += servsGA;
+    tPend += tktsPend.length; sPend += servsPend;
+
+    return {
+      name: gName, countTkts, dedupCount: dedup.length,
+      tOk: tktsOk.length, sOk,
+      tGa: tktsGA.length, sGa,
+      tPend: tktsPend.length, sPend
+    };
   });
 
   $('#tabBody').innerHTML = `
     <div class="tile">
       <div class="th">
         <div>
-          <h3>Avance de Tickets y Compliance por Grupos Prioritarios</h3>
-          <div class="sub">Distribución calculada dinámicamente desde la columna "Grupo"</div>
+          <h3>Avance de Tickets y Equivalencia en Servidores por Grupos</h3>
+          <div class="sub">Haz clic en los indicadores numéricos para auditar el detalle de Gestión vs Hardening</div>
         </div>
       </div>
       <div class="tw">
-        <table class="dt">
+        <table class="dt" style="text-align:center;">
           <thead>
             <tr>
-              <th>Grupo Prioritario</th>
-              <th class="num">Tickets Meta</th>
-              <th class="num">Servidores Destino</th>
-              <th class="num">Relaciones Apps</th>
-              <th class="num">Tkts Todo OK</th>
-              <th class="num">Tkts Pend. G.A</th>
-              <th class="num">Tkts Pendientes</th>
-              <th class="num">⭐ Ambos OK</th>
-              <th class="num">⏳ Pend. G.A</th>
-              <th class="num">🚨 Doble Brecha</th>
+              <th style="text-align:left;">Grupo Prioritario</th>
+              <th class="num" style="border-right:1px solid var(--k-line);">Total Meta (Tkts / Servs)</th>
+              <th class="num">✅ Tickets Todo OK (Servidores)</th>
+              <th class="num">⏳ Tickets Pend. G.A (Servidores)</th>
+              <th class="num">🚨 Tickets Pendientes (Servidores)</th>
             </tr>
           </thead>
           <tbody>
-            ${groupsInfo.map(g => {
-              const dedup = dedupeByDestServer(g.subset);
-              const totServers = dedup.length;
-              const totRows = g.subset.length;
-              const ambosOk = dedup.filter(r => r.condicionCodigo === 'AMBOS_OK').length;
-              const pendGA = dedup.filter(r => r.condicionCodigo === 'PEND_GA').length;
-              const dobleBrecha = dedup.filter(r => r.condicionCodigo === 'DOBLE_BRECHA').length;
-              
-              const tktGMap = computeTicketsMap(g.subset);
-              const gTkts = Object.keys(tktGMap);
-              const gTktsAmbosOk = gTkts.filter(t => {
-                const item = tktGMap[t];
-                return !item.tieneObsTicket && !item.esPendienteGA && item.pendientesEntrega === 0 && item.conBrechaTecnica === 0 && item.entregados > 0;
-              }).length;
-
-              const gTktsGA = gTkts.filter(t => tktGMap[t].esPendienteGA).length;
-              const gTktsPend = gTkts.length - gTktsAmbosOk - gTktsGA;
-
-              return `
-                <tr>
-                  <td style="font-weight:700;">${esc(g.name)}</td>
-                  <td class="num">${g.tktCount} tickets</td>
-                  <td class="num font-weight:700;">${fmt(totServers)}</td>
-                  <td class="num" style="color:var(--k-slate);">${fmt(totRows)}</td>
-                  <td class="num" style="color:var(--c-ok);font-weight:700;">${fmt(gTktsAmbosOk)}</td>
-                  <td class="num" style="color:var(--c-ga);font-weight:700;">${fmt(gTktsGA)}</td>
-                  <td class="num" style="color:${gTktsPend>0?'var(--c-alert)':'inherit'};font-weight:600;">${fmt(gTktsPend)}</td>
-                  <td class="num" style="color:var(--c-ok);font-weight:700;">${fmt(ambosOk)}</td>
-                  <td class="num" style="color:var(--c-ga);font-weight:700;">${fmt(pendGA)}</td>
-                  <td class="num" style="color:var(--c-alert);font-weight:700;">${fmt(dobleBrecha)}</td>
-                </tr>
-              `;
-            }).join('')}
+            ${groupsInfo.map(g => `
+              <tr>
+                <td style="font-weight:700;text-align:left;">${esc(g.name)}</td>
+                <td class="num" style="border-right:1px solid var(--k-line);"><b>${g.countTkts}</b> tkts / ${g.dedupCount} srvs</td>
+                
+                <td class="num" style="color:var(--c-ok);cursor:pointer;background:#FAFAFA;" onclick="drillGrupoDetail('${esc(g.name)}', 'OK')" title="Ver servidores Aceptados">
+                  <span style="font-size:14px;font-weight:800;">${g.tOk}</span> tkts <br>
+                  <small>(${g.sOk} servidores)</small>
+                </td>
+                
+                <td class="num" style="color:var(--c-ga);cursor:pointer;" onclick="drillGrupoDetail('${esc(g.name)}', 'GA')" title="Ver servidores en Gestión de Activos">
+                  <span style="font-size:14px;font-weight:800;">${g.tGa}</span> tkts <br>
+                  <small>(${g.sGa} servidores)</small>
+                </td>
+                
+                <td class="num" style="color:${g.tPend>0?'var(--c-alert)':'inherit'};cursor:pointer;background:#FAFAFA;" onclick="drillGrupoDetail('${esc(g.name)}', 'PEND')" title="Ver desvíos de Gestión y Hardening">
+                  <span style="font-size:14px;font-weight:800;">${g.tPend}</span> tkts <br>
+                  <small>(${g.sPend} servidores)</small>
+                </td>
+              </tr>
+            `).join('')}
           </tbody>
+          <tfoot>
+            <tr style="background:var(--k-charcoal);color:#fff;font-weight:700;">
+              <td style="text-align:left;padding:10px;">TOTAL CONSOLIDADO</td>
+              <td class="num" style="border-right:1px solid var(--k-slate);padding:10px;">${totTkts} tkts / ${totServs} srvs</td>
+              <td class="num" style="padding:10px;">${tOk} tkts (${sOk} srvs)</td>
+              <td class="num" style="padding:10px;">${tGa} tkts (${sGa} srvs)</td>
+              <td class="num" style="padding:10px;">${tPend} tkts (${sPend} srvs)</td>
+            </tr>
+          </tfoot>
         </table>
+      </div>
+    </div>
+  `;
+}
+
+function drillGrupoDetail(grupoName, tipo) {
+  const v = state.view.filter(r => r.grupoPrioridad === grupoName);
+  const dedup = dedupeByDestServer(v);
+  const tktGMap = computeTicketsMap(v);
+  
+  let targetTkts = [];
+  
+  Object.keys(tktGMap).forEach(t => {
+    const i = tktGMap[t];
+    const isOk = !i.tieneObsTicket && !i.esPendienteGA && i.pendientesEntrega === 0 && i.conBrechaTecnica === 0 && i.entregados > 0;
+    const isGa = i.esPendienteGA;
+    const isPend = !isOk && !isGa;
+    
+    if (tipo === 'OK' && isOk) targetTkts.push(t);
+    if (tipo === 'GA' && isGa) targetTkts.push(t);
+    if (tipo === 'PEND' && isPend) targetTkts.push(t);
+  });
+
+  const targetServs = dedup.filter(r => targetTkts.includes(r.ticketAprov));
+  const titulo = tipo === 'OK' ? 'Todo OK (Saneado)' : (tipo === 'GA' ? 'Pendientes de Validación G.A' : 'Pendientes (Brechas de Gestión / Hardening)');
+  const color = tipo === 'OK' ? 'var(--c-ok)' : (tipo === 'GA' ? 'var(--c-ga)' : 'var(--c-alert)');
+
+  const content = `
+    <div style="margin-bottom:14px;font-size:13px;color:var(--k-slate);">
+      Mostrando <b>${targetServs.length} servidores</b> vinculados a <b>${targetTkts.length} tickets</b> en estado <b>${titulo}</b>.
+    </div>
+    <div class="tw" style="max-height: 50vh;">
+      <table class="dt">
+        <thead>
+          <tr>
+            <th>Ticket Aprov.</th>
+            <th>Servidor Destino</th>
+            <th>S.O. Familia</th>
+            <th>Estado Gestión (Ticket)</th>
+            <th>Estado Hardening (Servidor)</th>
+            <th>Detalle Faltante</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${targetServs.map(s => `
+            <tr>
+              <td class="mono font-weight:700;">${esc(s.ticketAprov)}</td>
+              <td class="mono" style="color:var(--k-red);font-weight:700;">${esc(s.hostDestino)}</td>
+              <td>${esc(s.soFamilia)}</td>
+              <td>
+                <span class="badge ${s.esPendienteGA ? 'badge-ga' : (s.tieneObservacionAprov ? 'badge-alert' : 'badge-ok')}">
+                  ${s.esPendienteGA ? 'PEND. G.A' : (s.tieneObservacionAprov ? 'OBSERVADO' : 'CERRADO/OK')}
+                </span>
+              </td>
+              <td>
+                <span class="badge ${s.isServerCompliant ? 'badge-ok' : 'badge-alert'}">
+                  ${s.isServerCompliant ? 'CONFORME' : 'CON BRECHA TÉCNICA'}
+                </span>
+              </td>
+              <td style="font-size:11.5px;color:${!s.isServerCompliant || s.tieneObservacionAprov ? 'var(--c-alert)' : 'var(--c-ok)'};font-weight:600;">
+                ${!s.isServerCompliant ? `Brecha: ${esc(s.controlesFaltantes.join(', '))}` : (s.queFalta ? `Gestión: ${esc(s.queFalta)}` : 'Saneamiento Integral Completo')}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  $('#modalRoot').innerHTML = `
+    <div class="backdrop" id="modalBackdrop">
+      <div class="modal" style="width: min(1000px, 95vw);">
+        <div class="modal-header" style="background:${color};">
+          <h3>Detalle: ${esc(grupoName)} - ${titulo}</h3>
+          <button class="btn-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">${content}</div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cerrar</button>
+        </div>
       </div>
     </div>
   `;
