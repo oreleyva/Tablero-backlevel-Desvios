@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <style>
 :root {
   --k-red: #FF462D;
@@ -327,15 +328,12 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
       <p>Saneamiento Cruzado: Servidor & Ticket</p>
     </div>
     <div class="navlist">
-      <button class="navbtn on" data-tab="cockpit">Cockpit Ejecutivo</button>
       <button class="navbtn" data-tab="informe">📑 Informe Ejecutivo SDM</button>
-      <button class="navbtn" data-tab="saneamiento">🎯 Saneamiento 126 Tickets</button>
+      <button class="navbtn on" data-tab="saneamiento">🎯 Saneamiento 126 Tickets</button>
        <button class="navbtn" data-tab="entregables">📦 Entregables por Ticket</button>
       <button class="navbtn" data-tab="cronograma">📅 Calendario de Remediación</button>
       <button class="navbtn" data-tab="hardening">🛡️ Pendientes de Hardening</button>
-      <button class="navbtn" data-tab="qbreakdown">Distribución por Trimestre (Q)</button>
       <button class="navbtn" data-tab="grupos">Distribución por Grupos</button>
-      <button class="navbtn" data-tab="regularizacion">¿Qué Falta Sanear?</button>
       <button class="navbtn" data-tab="controles">Controles de Seguridad</button>
       <button class="navbtn" data-tab="nci">Gestión de NCI</button>
       <button class="navbtn" data-tab="detalle">Inventario de Servidores</button>
@@ -347,8 +345,8 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
     <div class="topbar">
       <div class="tb-main">
         <div>
-          <h2 id="viewTitle">Cockpit Ejecutivo</h2>
-          <div class="sub" id="viewSub">Métricas de saneamiento cruzado calculadas sobre Servidores Destino</div>
+          <h2 id="viewTitle">🎯 Saneamiento Integral de Tickets</h2>
+          <div class="sub" id="viewSub">Lectura gerencial por tickets y equivalencia operativa en servidores</div>
         </div>
         <div class="grow"></div>
         <button class="btn btn-ghost btn-sm" id="btnChangeFile">Cambiar archivo</button>
@@ -469,10 +467,14 @@ function calcularDiasHabiles(fechaInicio, fechaFin = new Date()) {
   return diasHabiles;
 }
 
+let grupoDetalleContext = null;
+let grupoDetalleFiltro = 'ALL';
+let grupoDetalleSort = { col: 'ticket', asc: true };
+
 const state = {
   raw: [],
   view: [],
-  tab: 'cockpit',
+  tab: 'saneamiento',
   charts: {},
   filters: {
     q: '__ALL__',
@@ -485,7 +487,8 @@ const state = {
   },
   sortHardening: { col: 'ambiente', asc: true },
   selectedCalMonth: '2026-10',
-  selectedCalDay: null
+  selectedCalDay: null,
+  selectedCalNcis: new Set()
 };
 
 const $ = s => document.querySelector(s);
@@ -616,7 +619,7 @@ function normalizeData(rows) {
       estadoEntrega = 'Desestimado';
     } else if (esRechazadoNoAceptado) {
       estadoEntrega = 'No Aceptado / Observado';
-    } else if (supero7Dias || esServidorEntregadoIBK) {
+    } else if (esServidorEntregadoIBK) {
       estadoEntrega = 'Entregado / Aceptado';
     } else if (normCat.includes('pendiente') || normSub.includes('pendiente')) {
       estadoEntrega = 'Pendiente de entrega';
@@ -830,7 +833,7 @@ function computeTicketsMap(rows) {
 
     if (r.esServidorDesestimado) {
       tktMap[t].desestimados++;
-    } else if ((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado) {
+    } else if (r.esServidorEntregadoIBK && !r.esRechazadoNoAceptado) {
       tktMap[t].entregados++;
     } else {
       tktMap[t].pendientesEntrega++;
@@ -1151,11 +1154,6 @@ function renderKPIs() {
       <div class="val">${fmt(tktsPendientes)} <small style="font-size:14px;font-weight:700">(${pctPend})</small></div>
       <div class="sub">Con observación o brecha técnica</div>
     </div>
-    <div class="kpi-card ok">
-      <div class="lbl">Aceptados por SLA (7d)</div>
-      <div class="val">${fmt(servidoresSupero7)} <small style="font-size:14px;font-weight:600">(${pct(servidoresSupero7, totServers)})</small></div>
-      <div class="sub">Sin objeción y >7 días útiles</div>
-    </div>
     <div class="kpi-card alert">
       <div class="lbl">🚨 Entrega No Aceptada</div>
       <div class="val">${fmt(servidoresNoAceptados)} <small style="font-size:14px;font-weight:600">(${pct(servidoresNoAceptados, totServers)})</small></div>
@@ -1179,202 +1177,78 @@ function renderKPIs() {
   `;
 }
 
-function renderInforme() {
+function getInformeEjecutivoData() {
   const v = state.view;
-  const tktMap = computeTicketsMap(v);
-  const uniqueTkts = Object.keys(tktMap);
-
-  const totTkts = uniqueTkts.length;
-  const totHosts = distinctDestServers(v);
-  const totComps = v.length;
-
-  const grpStats = { '1er Grupo': { t:0, h:new Set(), c:0 }, '2do Grupo': { t:0, h:new Set(), c:0 }, '3er Grupo': { t:0, h:new Set(), c:0 }, 'Otros': { t:0, h:new Set(), c:0 } };
-  v.forEach(r => {
-    let g = r.grupoPrioridad.includes('1er') || r.grupoPrioridad.includes('01') ? '1er Grupo' :
-            r.grupoPrioridad.includes('2do') || r.grupoPrioridad.includes('02') ? '2do Grupo' :
-            r.grupoPrioridad.includes('3er') || r.grupoPrioridad.includes('03') ? '3er Grupo' : 'Otros';
-    grpStats[g].c++;
-    grpStats[g].h.add(r.hostDestinoKey);
-  });
-  uniqueTkts.forEach(t => {
-    let g = tktMap[t].grupo;
-    let gk = g.includes('1er') || g.includes('01') ? '1er Grupo' :
-             g.includes('2do') || g.includes('02') ? '2do Grupo' :
-             g.includes('3er') || g.includes('03') ? '3er Grupo' : 'Otros';
-    grpStats[gk].t++;
-  });
-
-  const partialTkts = uniqueTkts.filter(t => {
-    const item = tktMap[t];
-    const hostsCount = new Set(item.servidores.map(s => s.hostDestinoKey)).size;
-    return hostsCount > 1 && item.entregados > 0 && item.entregados < item.total;
-  });
-
-  const fullDeliveredAdminOpenTkts = uniqueTkts.filter(t => {
-    const item = tktMap[t];
-    const isAllDelivered = item.entregados === item.total;
-    const isOpen = !norm(item.servidores[0].estadoAprov).includes('cerrado') && !norm(item.servidores[0].estadoAprov).includes('ok');
-    return isAllDelivered && isOpen;
-  });
-
+  const tickets = buildSaneamientoTicketData(v);
+  const dedup = dedupeByDestServer(v);
+  const activos = dedup.filter(r => !r.esServidorDesestimado);
+  const saneados = tickets.filter(t => t.codigo === 'SANEADO');
+  const ga = tickets.filter(t => t.codigo === 'GA');
+  const pendientes = tickets.filter(t => !['SANEADO','GA','DESESTIMADO'].includes(t.codigo));
+  const desestimados = tickets.filter(t => t.codigo === 'DESESTIMADO');
+  const servCompliance = activos.filter(r => r.isServerCompliant);
+  const servBrecha = activos.filter(r => !r.isServerCompliant);
+  const ticketCount = rows => new Set(rows.map(r => r.ticketAprov).filter(Boolean)).size;
   const controls = [
-    { name: 'Qualys', ok: v.filter(r => r.okQualys).length },
-    { name: 'Antivirus', ok: v.filter(r => r.okAv).length },
-    { name: 'Remediación S.O (Hardening)', ok: v.filter(r => r.okRemSo).length },
-    { name: 'Parchado S.O', ok: v.filter(r => r.okParchado).length },
-    { name: 'Remediación Subsistema', ok: v.filter(r => r.okRemSub).length },
-    { name: 'Política de Backup', ok: v.filter(r => r.okBkp).length },
-    { name: 'Monitoreo Activo', ok: v.filter(r => r.okMon).length }
-  ];
+    ['Hardening S.O','okRemSo'], ['Hardening Subsistema','okRemSub'], ['Parchado','okParchado'],
+    ['Qualys','okQualys'], ['Antivirus','okAv'], ['Backup','okBkp'], ['Monitoreo','okMon']
+  ].map(([name,key]) => {
+    const rows = activos.filter(r => !r[key]);
+    return {name, servidores: rows.length, tickets: ticketCount(rows)};
+  }).sort((a,b)=>b.servidores-a.servidores);
+  return {v,tickets,dedup,activos,saneados,ga,pendientes,desestimados,servCompliance,servBrecha,controls};
+}
 
-  const conFecha = v.filter(r => r.diasHabiles !== null && !r.esServidorDesestimado);
-  const superaron7d = conFecha.filter(r => r.supero7Dias && !r.esRechazadoNoAceptado);
-  const rechazados = conFecha.filter(r => r.esRechazadoNoAceptado);
-
-  let tax = { tech:0, ga:0, baja:0, formato:0, oc:0, cerrado:0, otros:0 };
-  uniqueTkts.forEach(t => {
-     const item = tktMap[t];
-     const r = item.servidores[0];
-     const catReg = norm(r.catReg);
-     const estado = norm(r.estadoAprov);
-     const qf = norm(r.queFalta);
-     const hasTechGap = item.servidores.some(s => norm(s.remSo) === 'pendiente' || norm(s.etiqCat).includes('pendiente'));
-
-     if (estado.includes('g.a') || estado.includes('gestion activos') || estado.includes('gestión activos') || qf.includes('g.a') || qf.includes('gestion activos') || (estado.includes('subsanado') && estado.includes('val'))) tax.ga++;
-     else if (catReg.includes('baja') || qf.includes('baja') || qf.includes('desestimar') || qf.includes('eliminación')) tax.baja++;
-     else if (catReg.includes('oc') || estado.includes('oc') || qf.includes('pir') || qf.includes('activacion') || qf.includes('activación')) tax.oc++;
-     else if (catReg.includes('formato') || qf.includes('plantilla') || estado.includes('formato') || qf.includes('acta')) tax.formato++;
-     else if (hasTechGap) tax.tech++;
-     else if (estado === 'cerrado' || catReg === 'todo ok' || catReg === 'ok') tax.cerrado++;
-     else tax.otros++;
-  });
+function renderInforme() {
+  const d = getInformeEjecutivoData();
+  const totalTickets = d.tickets.length;
+  const totalServ = d.dedup.length;
+  const top = d.controls.filter(x=>x.servidores>0).slice(0,4);
+  const filtrosActivos = [
+    state.filters.q!=='__ALL__' ? `Q: ${state.filters.q}` : '',
+    state.filters.soFamilia!=='__ALL__' ? `S.O.: ${state.filters.soFamilia}` : '',
+    state.filters.nci!=='__ALL__' ? `NCI: ${state.filters.nci}` : '',
+    state.filters.entrega!=='__ALL__' ? `Entrega: ${state.filters.entrega}` : ''
+  ].filter(Boolean);
+  const texto = `Sobre un universo visible de ${fmt(totalTickets)} tickets de aprovisionamiento, ${fmt(d.saneados.length)} se encuentran saneados y validados (${pct(d.saneados.length,totalTickets)}), ${fmt(d.ga.length)} están técnicamente saneados y pendientes de validación de Gestión de Activos (${pct(d.ga.length,totalTickets)}), y ${fmt(d.pendientes.length)} mantienen alguna brecha técnica, de entrega o de gestión (${pct(d.pendientes.length,totalTickets)}). Estos tickets representan ${fmt(totalServ)} servidores destino únicos. A nivel técnico, ${fmt(d.servCompliance.length)} de ${fmt(d.activos.length)} servidores activos cumplen integralmente los controles de compliance, mientras ${fmt(d.servBrecha.length)} aún presentan al menos un control pendiente.${top.length ? ' Las principales brechas actuales son ' + top.map(x=>`${x.name}: ${x.tickets} tickets / ${x.servidores} servidores`).join('; ') + '.' : ' No se identifican brechas técnicas en la vista actual.'}`;
 
   $('#tabBody').innerHTML = `
+    <div class="tile" style="border-left:4px solid var(--k-red);margin-bottom:14px;">
+      <div class="th" style="align-items:center;flex-wrap:wrap;"><div><h3>Resumen Ejecutivo SDM</h3><div class="sub">Lectura automática del estado vigente · Tickets como unidad gerencial y servidores como equivalencia operativa</div></div><button class="btn btn-primary" onclick="exportarInformePPT()">📊 Exportar PPT Ejecutivo</button></div>
+      <div style="font-size:14px;line-height:1.7;background:#FAF8F5;border:1px solid var(--k-line);border-radius:8px;padding:16px 18px;">${esc(texto)}</div>
+      ${filtrosActivos.length?`<div style="margin-top:8px;font-size:11.5px;color:var(--k-slate);"><b>Filtros aplicados:</b> ${esc(filtrosActivos.join(' · '))}</div>`:''}
+    </div>
+    <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
+      <div class="kpi-card info"><div class="lbl">Universo visible</div><div class="val">${fmt(totalTickets)} <small style="font-size:13px">tickets</small></div><div class="sub">${fmt(totalServ)} servidores únicos</div></div>
+      <div class="kpi-card ok"><div class="lbl">Saneados / Validados</div><div class="val">${fmt(d.saneados.length)} <small style="font-size:13px">(${pct(d.saneados.length,totalTickets)})</small></div><div class="sub">Cierre integral confirmado</div></div>
+      <div class="kpi-card ga"><div class="lbl">Saneados · Pend. G.A.</div><div class="val">${fmt(d.ga.length)} <small style="font-size:13px">(${pct(d.ga.length,totalTickets)})</small></div><div class="sub">Sin brecha técnica; falta validación</div></div>
+      <div class="kpi-card alert"><div class="lbl">Tickets pendientes</div><div class="val">${fmt(d.pendientes.length)} <small style="font-size:13px">(${pct(d.pendientes.length,totalTickets)})</small></div><div class="sub">Brecha técnica, entrega o gestión</div></div>
+      <div class="kpi-card ok"><div class="lbl">Servidores Compliance</div><div class="val">${fmt(d.servCompliance.length)}</div><div class="sub">de ${fmt(d.activos.length)} servidores activos</div></div>
+      <div class="kpi-card alert"><div class="lbl">Servidores con Brecha</div><div class="val">${fmt(d.servBrecha.length)}</div><div class="sub">Al menos un control pendiente</div></div>
+    </div>
     <div class="row r-2">
-        <div class="tile">
-            <div class="th">
-              <div>
-                <h3>1. Matriz de Trazabilidad End-to-End</h3>
-                <div class="sub">Equivalencia operativa de Tickets ↔ Hostnames ↔ Componentes</div>
-              </div>
-            </div>
-            <div style="font-size:12.5px; line-height:1.5;">
-                <div style="display:flex; justify-content:space-between; background:#FAF8F5; padding:10px; border-radius:6px; margin-bottom:10px; border:1px solid var(--k-line);">
-                    <div style="text-align:center;"><b>${fmt(totTkts)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">TICKETS APROV.</span></div>
-                    <div style="text-align:center;color:var(--k-red);"><b>⇄</b></div>
-                    <div style="text-align:center;"><b>${fmt(totHosts)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">HOSTNAMES ÚNICOS</span></div>
-                    <div style="text-align:center;color:var(--k-red);"><b>⇄</b></div>
-                    <div style="text-align:center;"><b>${fmt(totComps)}</b><br><span style="color:var(--k-slate);font-size:10.5px;">COMPONENTES</span></div>
-                </div>
-                <b>Desglose Estructural:</b>
-                <ul style="margin-top:4px; margin-bottom:10px; padding-left:20px; color:var(--k-slate);">
-                    <li><b>1er Grupo:</b> ${grpStats['1er Grupo'].t} Tickets → ${grpStats['1er Grupo'].h.size} Hostnames → ${grpStats['1er Grupo'].c} Componentes</li>
-                    <li><b>2do Grupo:</b> ${grpStats['2do Grupo'].t} Tickets → ${grpStats['2do Grupo'].h.size} Hostnames → ${grpStats['2do Grupo'].c} Componentes</li>
-                    <li><b>3er Grupo:</b> ${grpStats['3er Grupo'].t} Tickets → ${grpStats['3er Grupo'].h.size} Hostnames → ${grpStats['3er Grupo'].c} Componentes</li>
-                </ul>
-                <b>Entregas Parciales (Bloqueo por Minoría):</b> Existen ${partialTkts.length} tickets donde la mayoría de servidores están entregados, pero 1 o 2 impiden el cierre del ticket.<br>
-                <b>Bloqueo Administrativo:</b> Se identifican ${fullDeliveredAdminOpenTkts.length} tickets con el 100% de sus servidores entregados a IBK que permanecen abiertos en la herramienta por trámites de firmas, formatos o actas.
-            </div>
-        </div>
+      <div class="tile"><div class="th"><div><h3>Brechas Técnicas que Impiden el Saneamiento</h3><div class="sub">Cada control se analiza independientemente; un ticket puede aparecer en más de una brecha.</div></div></div><div class="tw"><table class="dt"><thead><tr><th>Control</th><th class="num">Tickets afectados</th><th class="num">Servidores afectados</th><th class="num">% servidores activos</th></tr></thead><tbody>${d.controls.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td class="num" style="color:${x.tickets?'var(--c-alert)':'var(--c-ok)'};font-weight:800;">${fmt(x.tickets)} de ${fmt(totalTickets)}</td><td class="num">${fmt(x.servidores)}</td><td class="num">${pct(x.servidores,d.activos.length)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="tile"><div class="th"><div><h3>Lectura para Comité / Gerencia</h3><div class="sub">Mensajes clave derivados de la situación actual</div></div></div><div style="display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.55;">
+        <div style="padding:12px;border-left:3px solid var(--c-ok);background:var(--c-ok-bg);"><b>Avance confirmado:</b> ${fmt(d.saneados.length)} tickets ya pueden presentarse como saneados/validados; representan ${fmt(saneamientoServidoresUnicos(d.saneados))} servidores únicos.</div>
+        <div style="padding:12px;border-left:3px solid var(--c-ga);background:var(--c-ga-bg);"><b>Próximo cierre administrativo:</b> ${fmt(d.ga.length)} tickets ya están técnicamente saneados y dependen de validación de Gestión de Activos.</div>
+        <div style="padding:12px;border-left:3px solid var(--c-alert);background:var(--c-alert-bg);"><b>Foco operativo:</b> quedan ${fmt(d.servBrecha.length)} servidores activos con alguna brecha de compliance. ${top.length?`El mayor volumen se concentra en ${esc(top[0].name)} (${fmt(top[0].servidores)} servidores / ${fmt(top[0].tickets)} tickets).`:''}</div>
+        <div style="padding:12px;border-left:3px solid var(--c-blue);background:var(--c-blue-bg);"><b>Regla de lectura:</b> los controles técnicos no son categorías excluyentes. Un mismo ticket puede requerir Hardening, Parchado y otro control simultáneamente; por ello las brechas no deben sumarse entre sí.</div>
+      </div></div>
+    </div>`;
+}
 
-        <div class="tile">
-            <div class="th">
-              <div>
-                <h3>3. Taxonomía y Plan de Acción de Desvíos</h3>
-                <div class="sub">Clasificación operativa y asignación de responsabilidades de cierre</div>
-              </div>
-            </div>
-            <div class="tw">
-                <table class="dt">
-                    <thead><tr><th>Tipología Operativa</th><th class="num">Tickets</th><th>Acción de Cierre</th><th>Responsable</th></tr></thead>
-                    <tbody>
-                        <tr><td><span class="badge badge-alert">Desvío Técnico Real (Hardening)</span></td><td class="num font-weight:700">${tax.tech}</td><td style="font-size:11.5px;">Ejecución de scripts S.O y Subsistema</td><td style="font-size:11.5px;">SO / BD Kyndryl</td></tr>
-                        <tr><td><span class="badge badge-ga">Pendiente Validación G.A</span></td><td class="num font-weight:700">${tax.ga}</td><td style="font-size:11.5px;">Aprobación de expedientes</td><td style="font-size:11.5px;">SDM / Alejandro IBK</td></tr>
-                        <tr><td><span class="badge badge-warn">Regularización de Baja (CMDB)</span></td><td class="num font-weight:700">${tax.baja}</td><td style="font-size:11.5px;">Flujo de baja en CTM sin actas</td><td style="font-size:11.5px;">Torre CMDB</td></tr>
-                        <tr><td><span class="badge badge-warn">Desvío de Formato / Documental</span></td><td class="num font-weight:700">${tax.formato}</td><td style="font-size:11.5px;">Re-emisión de plantillas vigentes</td><td style="font-size:11.5px;">Tech Lead / PMO</td></tr>
-                        <tr><td><span class="badge badge-warn">Desvío de OC / Activación</span></td><td class="num font-weight:700">${tax.oc}</td><td style="font-size:11.5px;">Conciliación de PIR/OC</td><td style="font-size:11.5px;">Change Management</td></tr>
-                        <tr><td><span class="badge badge-ok">Cerrados / Sin Desvío</span></td><td class="num font-weight:700">${tax.cerrado}</td><td style="font-size:11.5px;">-</td><td style="font-size:11.5px;">-</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <div class="row r-2">
-        <div class="tile">
-            <div class="th">
-              <div>
-                <h3>2. Auditoría del Checklist Técnico de Entrega</h3>
-                <div class="sub">Tasa de cumplimiento de estándares obligatorios de seguridad (${totComps} componentes)</div>
-              </div>
-            </div>
-            <div class="tw">
-                <table class="dt">
-                    <thead><tr><th>Control Técnico Auditado</th><th class="num">Conformes/Exentos</th><th class="num">% Cumplimiento</th></tr></thead>
-                    <tbody>
-                        ${controls.map(c => `
-                            <tr>
-                                <td style="font-weight:700;font-size:11.5px;">${esc(c.name)}</td>
-                                <td class="num" style="color:var(--c-ok);font-weight:700;">${fmt(c.ok)}</td>
-                                <td class="num font-weight:700">${pct(c.ok, totComps)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-            <div style="font-size:11.5px; line-height:1.5; margin-top:10px; color:var(--k-slate);">
-                <b>Brechas Reales vs Evidencias:</b> La falta de Hardening S.O concentra la deuda técnica real. Existen casos puntuales con Hardening aplicado donde solo falta adjuntar el Archivo Scan HC S.O (Pendiente documental, no técnico).
-            </div>
-        </div>
-
-        <div class="tile">
-            <div class="th">
-              <div>
-                <h3>4. Regla de Aceptación y Defensa SLA (7 Días)</h3>
-                <div class="sub">Aceptación Tácita de Servidores Entregados</div>
-              </div>
-            </div>
-            <div style="display:flex; flex-direction:column; gap:10px; font-size:13px; line-height:1.5;">
-                <div style="display:flex; gap:10px; text-align:center;">
-                    <div style="flex:1; background:#E8F5E9; border:1px solid var(--c-ok); padding:10px; border-radius:6px;">
-                        <div style="font-size:20px; font-weight:800; color:var(--c-ok);">${superaron7d.length}</div>
-                        <div style="font-size:10px; font-weight:700; color:var(--c-ok);">ACEPTADOS TÁCITAMENTE (>7 DÍAS)</div>
-                    </div>
-                    <div style="flex:1; background:#FFEBEE; border:1px solid var(--c-alert); padding:10px; border-radius:6px;">
-                        <div style="font-size:20px; font-weight:800; color:var(--c-alert);">${rechazados.length}</div>
-                        <div style="font-size:10px; font-weight:700; color:var(--c-alert);">RECHAZOS DENTRO DE VENTANA</div>
-                    </div>
-                </div>
-                <div style="background:#FAF8F5; border-left:3px solid var(--k-slate); padding:10px 14px; border-radius:4px; font-size:12px;">
-                    <b>Aplicación SLA Contractual:</b> El ${pct(superaron7d.length, conFecha.length || 1)} de los servidores con fecha de entrega a IBK superó la ventana de 7 días hábiles sin observaciones formales, consolidando su aceptación tácita. Las observaciones de seguridad extemporáneas deben derivarse a la mesa de remediación continua, sin bloquear el cierre administrativo del aprovisionamiento en Backlevel.
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="tile">
-        <div class="th">
-          <div>
-            <h3>5. Tablero de Control y Argumentario Ejecutivo (One-Page)</h3>
-            <div class="sub">Justificaciones sustentadas para mesa de trabajo con IBK (Alejandro / Gestión de Activos / Auditoría)</div>
-          </div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:12px; font-size:12.5px; line-height:1.6;">
-            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
-                <b style="color:var(--k-red);">Argumento 1: Discrepancia de Alcance (Reclamo 500 vs. ${totHosts} reales)</b><br>
-                "Alejandro, la base oficial de desvíos registra exactamente <b>${totHosts} hostnames destino únicos</b> que sustentan ${totComps} componentes y responden a ${totTkts} tickets. El número de 500 surge de sumar erróneamente componentes lógicos con hostnames físicos o incluir servidores que el propio banco desestimó durante la ejecución. Contractualmente, la infraestructura gestionada es de ${totHosts} servidores destino."
-            </div>
-            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
-                <b style="color:var(--k-red);">Argumento 2: Ticket Abierto ≠ Servidor No Migrado</b><br>
-                "Un ticket abierto en la consola no significa indisponibilidad ni retraso de migración. Gran parte de la infraestructura de tickets abiertos ya se encuentra en producción y entregada. Mantener abiertos tickets que tienen el 100% de sus servidores operando (solo por firmas pendientes de G.A) distorsiona severamente los indicadores de Backlevel ante Auditoría."
-            </div>
-            <div style="background:#FFF9F7; border-left:3px solid var(--k-red); padding:10px 14px; border-radius:4px;">
-                <b style="color:var(--k-red);">Argumento 3: Aceptación Tácita por SLA Contractual</b><br>
-                "El acuerdo de nivel de servicio estipula 7 días hábiles para objeciones. El ${pct(superaron7d.length, conFecha.length || 1)} de la infraestructura entregada no recibió rechazo en esa ventana y opera en el banco. Estas máquinas están aceptadas. Las revisiones técnicas posteriores (Auditoría/Hardening) se atienden, pero no pueden paralizar retroactivamente el cierre del ticket de aprovisionamiento original."
-            </div>
-        </div>
-    </div>
-  `;
+function exportarInformePPT() {
+  if (typeof PptxGenJS === 'undefined') { alert('No se pudo cargar el motor de PowerPoint. Verifique conexión a Internet y vuelva a intentar.'); return; }
+  const d=getInformeEjecutivoData(), totalTickets=d.tickets.length, totalServ=d.dedup.length;
+  const pptx=new PptxGenJS(); pptx.layout='LAYOUT_WIDE'; pptx.author='Kyndryl'; pptx.subject='Informe Ejecutivo SDM'; pptx.title='Saneamiento Integral & Compliance'; pptx.company='Kyndryl'; pptx.lang='es-PE';
+  const C={red:'FF462D',black:'121212',gray:'545454',light:'F6F4EF',green:'107C41',blue:'0263E0',amber:'D9730D',alert:'BA1A1A',white:'FFFFFF'};
+  const addHeader=(sl,title,sub='')=>{sl.addText(title,{x:.55,y:.35,w:12.1,h:.35,fontFace:'Arial',fontSize:22,bold:true,color:C.black}); if(sub)sl.addText(sub,{x:.55,y:.76,w:12,h:.25,fontFace:'Arial',fontSize:10,color:C.gray}); sl.addShape(pptx.ShapeType.line,{x:.55,y:1.08,w:12.2,h:0,line:{color:C.red,width:2}});};
+  const addKpi=(sl,x,y,w,label,value,sub,color)=>{sl.addShape(pptx.ShapeType.roundRect,{x,y,w,h:1.15,rectRadius:.06,fill:{color:'FFFFFF'},line:{color:'E2DFD8'}});sl.addText(label,{x:x+.15,y:y+.12,w:w-.3,h:.18,fontSize:8,bold:true,color:C.gray});sl.addText(String(value),{x:x+.15,y:y+.35,w:w-.3,h:.35,fontSize:22,bold:true,color});sl.addText(sub,{x:x+.15,y:y+.82,w:w-.3,h:.18,fontSize:8,color:C.gray});};
+  let s=pptx.addSlide(); s.background={color:C.light}; s.addText('KYNDRYL PERÚ',{x:.7,y:.55,w:3,h:.25,fontSize:11,bold:true,color:C.red}); s.addText('Informe Ejecutivo SDM',{x:.7,y:2.25,w:7.5,h:.55,fontSize:30,bold:true,color:C.black}); s.addText('Saneamiento Integral & Compliance',{x:.7,y:2.88,w:7.5,h:.35,fontSize:18,color:C.gray}); s.addText(`${totalTickets} tickets · ${totalServ} servidores destino únicos`,{x:.7,y:3.55,w:7,h:.3,fontSize:14,bold:true,color:C.red}); s.addText('Generado desde el dashboard con los filtros vigentes.',{x:.7,y:4.02,w:7,h:.25,fontSize:10,color:C.gray});
+  s=pptx.addSlide(); addHeader(s,'Resumen Ejecutivo','Tickets como unidad gerencial · Servidores como equivalencia operativa'); addKpi(s,.6,1.35,2.35,'UNIVERSO',totalTickets,`${totalServ} servidores`,C.blue); addKpi(s,3.05,1.35,2.35,'SANEADOS',d.saneados.length,pct(d.saneados.length,totalTickets),C.green); addKpi(s,5.5,1.35,2.35,'PEND. G.A.',d.ga.length,'Técnicamente saneados',C.gray); addKpi(s,7.95,1.35,2.35,'PENDIENTES',d.pendientes.length,'Brecha / entrega / gestión',C.alert); addKpi(s,10.4,1.35,2.35,'SERV. CON BRECHA',d.servBrecha.length,`de ${d.activos.length} activos`,C.amber); const resumen=`De ${totalTickets} tickets visibles, ${d.saneados.length} están saneados/validados, ${d.ga.length} están saneados técnicamente pendientes de G.A. y ${d.pendientes.length} mantienen pendientes. A nivel servidor, ${d.servCompliance.length} de ${d.activos.length} activos cumplen integralmente los controles y ${d.servBrecha.length} presentan al menos una brecha.`; s.addText(resumen,{x:.75,y:3.05,w:11.8,h:1.25,fontSize:17,bold:false,color:C.black,breakLine:false,margin:.08});
+  s=pptx.addSlide(); addHeader(s,'Brechas Técnicas por Control','Un ticket puede aparecer en más de un control; los valores no deben sumarse entre sí.'); const max=Math.max(1,...d.controls.map(x=>x.servidores)); d.controls.forEach((x,i)=>{const y=1.35+i*.72; s.addText(x.name,{x:.65,y:y+.08,w:2.35,h:.22,fontSize:11,bold:true,color:C.black}); s.addShape(pptx.ShapeType.rect,{x:3.05,y:y+.08,w:6.6*(x.servidores/max),h:.28,fill:{color:x.servidores?C.alert:C.green},line:{color:x.servidores?C.alert:C.green}}); s.addText(`${x.servidores} servidores · ${x.tickets} tickets`,{x:9.85,y:y+.05,w:2.7,h:.28,fontSize:10,bold:true,color:C.gray});});
+  s=pptx.addSlide(); addHeader(s,'Prioridades de Cierre','Foco recomendado para la siguiente mesa de seguimiento'); const top=d.controls.filter(x=>x.servidores>0).slice(0,5); const bullets=[`Cerrar ${d.ga.length} tickets técnicamente saneados que dependen de validación de Gestión de Activos.`, `Remediar ${d.servBrecha.length} servidores activos con al menos un control de compliance pendiente.`, ...top.map(x=>`Atender ${x.name}: ${x.servidores} servidores asociados a ${x.tickets} tickets.`)]; s.addText(bullets.map(t=>({text:t,options:{bullet:{indent:18},hanging:4,breakLine:true}})),{x:.8,y:1.45,w:11.6,h:4.8,fontSize:18,color:C.black,paraSpaceAfterPt:12,margin:.05}); s.addText('Nota: la presentación refleja exactamente la vista filtrada al momento de exportar.',{x:.8,y:6.75,w:11.5,h:.25,fontSize:9,color:C.gray,italic:true});
+  pptx.writeFile({fileName:'Informe_Ejecutivo_SDM_Saneamiento.pptx'});
 }
 
 function renderCockpit() {
@@ -1510,27 +1384,13 @@ function renderCockpit() {
         <div class="cbox"><canvas id="cControls"></canvas></div>
       </div>
     </div>
-    <div class="row r-2">
-      <div class="tile">
-        <div class="th">
-          <div>
-            <h3>Servidores Destino Únicos por Trimestre (Q)</h3>
-            <div class="sub">Volumen de máquinas destino por ventana de migración</div>
-          </div>
-        </div>
-        <div class="cbox"><canvas id="cQ"></canvas></div>
-      </div>
-      <div class="tile">
-        <div class="th">
-          <div>
-            <h3>Estado de Entrega del Servidor a IBK (SLA 7 Días Útiles)</h3>
-            <div class="sub">Pasa el cursor para ver desglose de servidores y tickets</div>
-          </div>
-        </div>
-        <div class="cbox"><canvas id="cEntrega"></canvas></div>
-      </div>
-    </div>
   `;
+
+  requestAnimationFrame(() => {
+  if (typeof Chart === 'undefined') {
+    ['cMatrizCruzada','cObsAprov','cComplianceDoughnut','cControls'].forEach(id => { const c=document.getElementById(id); if(c&&c.parentElement) c.parentElement.innerHTML='<div style="padding:24px;color:var(--c-alert);font-weight:700;">No se pudo cargar el motor de gráficos Chart.js. Verifique acceso a cdnjs.cloudflare.com.</div>'; });
+    return;
+  }
 
   state.charts.matrizCruzada = new Chart($('#cMatrizCruzada'), {
     type: 'doughnut',
@@ -1651,125 +1511,173 @@ function renderCockpit() {
       scales: { x: { max: 100, ticks: { callback: v => v + '%' } } }
     }
   });
+  }); // requestAnimationFrame: inicialización segura de gráficos Cockpit
 
-  state.charts.q = new Chart($('#cQ'), {
-    type: 'bar',
-    data: { labels: Object.keys(qCounts), datasets: [{ data: Object.values(qCounts), backgroundColor: '#FF462D', borderRadius: 4 }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-  });
 
-  state.charts.entrega = new Chart($('#cEntrega'), {
-    type: 'doughnut',
-    data: {
-      labels: activeEntregaData.map(x => x.label),
-      datasets: [{
-        data: activeEntregaData.map(x => x.sCount),
-        backgroundColor: activeEntregaData.map(x => x.color)
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right' },
-        tooltip: {
-          callbacks: {
-            label: function(ctx) {
-              const item = activeEntregaData[ctx.dataIndex];
-              return [
-                ` ${item.label}`,
-                ` • Servidores Destino: ${item.sCount} (${pct(item.sCount, tot)})`,
-                ` • Tickets Asociados: ${item.tCount} (${pct(item.tCount, totTkts)})`
-              ];
-            }
-          }
-        }
-      }
-    }
-  });
 }
 
-function renderSaneamientoTickets() {
-  const v = state.view;
+function buildSaneamientoTicketData(rowsBase = state.view) {
   const byTicket = {};
-  v.forEach(r => {
+  rowsBase.forEach(r => {
     const t = r.ticketAprov;
     if (!t) return;
     if (!byTicket[t]) byTicket[t] = [];
     byTicket[t].push(r);
   });
 
-  const ticketRows = Object.entries(byTicket).map(([ticket, rows]) => {
+  return Object.entries(byTicket).map(([ticket, rows]) => {
     const servs = dedupeByDestServer(rows);
     const activos = servs.filter(r => !r.esServidorDesestimado);
     const desestimados = servs.filter(r => r.esServidorDesestimado);
-    const entregados = activos.filter(r => (r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado);
+    const entregados = activos.filter(r => r.esServidorEntregadoIBK && !r.esRechazadoNoAceptado);
     const compliance = activos.filter(r => r.isServerCompliant);
-    const listos = activos.filter(r => r.isServerCompliant && (r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado);
-    const pendEntrega = activos.filter(r => !((r.esServidorEntregadoIBK || r.supero7Dias) && !r.esRechazadoNoAceptado));
-    const conBrecha = activos.filter(r => !r.isServerCompliant);
+    // Clasificación ejecutiva MUTUAMENTE EXCLUYENTE para conciliación del universo:
+    // Activos = Listos + Pendientes de entrega/aceptación + Brecha técnica (ya entregados).
+    const esEntregadoAceptado = r => r.esServidorEntregadoIBK && !r.esRechazadoNoAceptado;
+    const listos = activos.filter(r => esEntregadoAceptado(r) && r.isServerCompliant);
+    const pendEntrega = activos.filter(r => !esEntregadoAceptado(r));
+    const conBrecha = activos.filter(r => esEntregadoAceptado(r) && !r.isServerCompliant);
+    // Brecha compliance total (informativa, puede incluir servidores aún no entregados).
+    const conBrechaComplianceTotal = activos.filter(r => !r.isServerCompliant);
     const obsGestion = rows.some(r => r.tieneObservacionAprov);
     const pendGA = rows.some(r => r.esPendienteGA);
     const estadoActual = uniq(rows.map(r => r.estadoActualTicket).filter(Boolean)).join(' | ') || '—';
     const estadoAprov = uniq(rows.map(r => r.estadoAprov).filter(Boolean)).join(' | ') || '—';
     const categorias = uniq(rows.map(r => r.categoriaDesvio || r.catReg).filter(Boolean)).join(' | ') || '—';
-    const faltantesGestion = uniq(rows.map(r => r.queFalta).filter(x => x && norm(x) !== 'no aplica')).join(' | ');
+    const faltantesGestion = uniq(rows.map(r => r.queFalta).filter(x => x && norm(x) !== 'no aplica' && norm(x) !== 'todo ok')).join(' | ');
     const controles = {};
     conBrecha.forEach(r => r.controlesFaltantes.forEach(c => controles[c] = (controles[c] || 0) + 1));
     const controlesTxt = Object.entries(controles).sort((a,b)=>b[1]-a[1]).map(([k,n]) => `${k}: ${n}`).join(' · ');
     const pctServ = activos.length ? (listos.length / activos.length * 100) : 100;
+    const tecnicoCompleto = activos.length > 0 && listos.length === activos.length;
     let codigo = 'PENDIENTE', estado = 'Pendiente de saneamiento';
     if (!activos.length && desestimados.length) { codigo='DESESTIMADO'; estado='Desestimado'; }
-    else if (listos.length === activos.length && !obsGestion && !pendGA) { codigo='SANEADO'; estado='Saneado 100%'; }
-    else if (listos.length === activos.length && pendGA) { codigo='GA'; estado='Técnicamente listo · Pend. G.A'; }
-    else if (listos.length === activos.length && obsGestion) { codigo='GESTION'; estado='Técnicamente listo · Obs. Gestión'; }
-    else if (pendGA) { codigo='GA'; estado='Pendiente + Validación G.A'; }
-    return { ticket, rows, servs, activos, desestimados, entregados, compliance, listos, pendEntrega, conBrecha, obsGestion, pendGA, estadoActual, estadoAprov, categorias, faltantesGestion, controlesTxt, pctServ, codigo, estado, grupo: rows[0].grupoPrioridad, q: rows[0].q };
+    else if (tecnicoCompleto && !obsGestion && !pendGA) { codigo='SANEADO'; estado='Saneado / Validado'; }
+    else if (tecnicoCompleto && pendGA) { codigo='GA'; estado='Saneado técnicamente · Pend. G.A'; }
+    else if (conBrecha.length > 0 || pendEntrega.length > 0) { codigo='TECNICO'; estado='Pendiente técnico'; }
+    else if (obsGestion) { codigo='GESTION'; estado='Pendiente de gestión'; }
+    return { ticket, rows, servs, activos, desestimados, entregados, compliance, listos, pendEntrega, conBrecha, conBrechaComplianceTotal, obsGestion, pendGA, estadoActual, estadoAprov, categorias, faltantesGestion, controlesTxt, pctServ, codigo, estado, grupo: rows[0].grupoPrioridad, q: rows[0].q };
   }).sort((a,b) => a.ticket.localeCompare(b.ticket, undefined, {numeric:true}));
+}
 
-  const saneados = ticketRows.filter(t=>t.codigo==='SANEADO').length;
-  const ga = ticketRows.filter(t=>t.codigo==='GA').length;
-  const gestion = ticketRows.filter(t=>t.codigo==='GESTION').length;
-  const desest = ticketRows.filter(t=>t.codigo==='DESESTIMADO').length;
-  const pendientes = ticketRows.length - saneados - ga - gestion - desest;
-  const servTotal = new Set(ticketRows.flatMap(t=>t.servs.map(s=>s.hostDestinoKey))).size;
+function saneamientoServidoresUnicos(list) {
+  return new Set(list.flatMap(t => t.servs.map(s => s.hostDestinoKey))).size;
+}
+
+function drillSaneamientoCategoria(codigo, titulo) {
+  const all = buildSaneamientoTicketData(state.view);
+  const list = codigo === '__ALL__' ? all : all.filter(t => t.codigo === codigo);
+  const servs = new Set(list.flatMap(t => t.servs.map(s => s.hostDestinoKey))).size;
+  const listos = new Set(list.flatMap(t => t.listos.map(s => s.hostDestinoKey))).size;
+  const pendEntrega = new Set(list.flatMap(t => t.pendEntrega.map(s => s.hostDestinoKey))).size;
+  const conBrecha = new Set(list.flatMap(t => t.conBrecha.map(s => s.hostDestinoKey))).size;
+  const desestimados = new Set(list.flatMap(t => t.desestimados.map(s => s.hostDestinoKey))).size;
+  const conciliado = listos + pendEntrega + conBrecha + desestimados;
+
+  const ticketHtml = list.map(t => {
+    const faltan = [];
+    if (t.pendEntrega.length) faltan.push(`${t.pendEntrega.length} servidor(es) pendiente(s) de entrega/aceptación`);
+    if (t.conBrecha.length) faltan.push(`${t.conBrecha.length} servidor(es) entregado(s) con brecha técnica: ${t.controlesTxt}`);
+    if (t.pendGA) faltan.push('Pendiente de validación de Gestión de Activos');
+    else if (t.obsGestion) faltan.push('Observación vigente de gestión');
+    if (t.faltantesGestion) faltan.push(t.faltantesGestion);
+    return `<tr>
+      <td class="mono" style="font-weight:800;color:var(--k-red);">${esc(t.ticket)}</td>
+      <td class="num"><b>${t.servs.length}</b></td><td class="num" style="color:var(--c-ok);font-weight:700;">${t.listos.length}</td>
+      <td class="num" style="color:var(--c-warn);font-weight:700;">${t.pendEntrega.length}</td>
+      <td class="num" style="color:${t.conBrecha.length?'var(--c-alert)':'inherit'};font-weight:700;">${t.conBrecha.length}</td>
+      <td class="num">${t.desestimados.length}</td><td class="num"><b>${t.pctServ.toFixed(1)}%</b></td><td>${esc(t.estadoAprov)}</td>
+      <td style="min-width:300px;font-size:11.5px;">${esc(faltan.join(' | ') || 'Sin pendientes')}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="drillSaneamientoTicket('${esc(t.ticket)}')">Ver servidores</button></td></tr>`;
+  }).join('');
+
+  const root = $('#saneamientoDetalle');
+  if (!root) return;
+  root.innerHTML = `<div class="tile" style="border-left:4px solid var(--c-blue);">
+    <div class="th"><div><h3>Detalle inferior · ${esc(titulo)}</h3><div class="sub">Conciliación exacta del universo seleccionado. Cada servidor pertenece a una sola categoría.</div></div><button class="btn btn-ghost btn-sm" onclick="cerrarDetalleSaneamiento()">Ocultar detalle</button></div>
+    <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:12px;">
+      <div class="kpi-card info"><div class="lbl">Tickets</div><div class="val">${fmt(list.length)}</div></div>
+      <div class="kpi-card"><div class="lbl">Servidores universo</div><div class="val">${fmt(servs)}</div></div>
+      <div class="kpi-card ok"><div class="lbl">Listos</div><div class="val">${fmt(listos)}</div></div>
+      <div class="kpi-card warn"><div class="lbl">Pend. entrega / aceptación</div><div class="val">${fmt(pendEntrega)}</div></div>
+      <div class="kpi-card alert"><div class="lbl">Brecha técnica</div><div class="val">${fmt(conBrecha)}</div><div class="sub">Ya entregados, no compliance</div></div>
+      <div class="kpi-card"><div class="lbl">Desestimados</div><div class="val">${fmt(desestimados)}</div></div>
+    </div>
+    <div style="padding:10px 12px;background:#FAF8F5;border:1px solid var(--k-line);border-radius:6px;margin-bottom:12px;font-size:12.5px;"><b>Conciliación:</b> ${fmt(listos)} Listos + ${fmt(pendEntrega)} Pend. entrega + ${fmt(conBrecha)} Brecha técnica + ${fmt(desestimados)} Desestimados = <b>${fmt(conciliado)} servidores</b>${conciliado===servs?' ✅':' ⚠️'}.</div>
+    <div class="tw" style="max-height:560px;"><table class="dt"><thead><tr><th>Ticket</th><th class="num">Servidores</th><th class="num">Listos</th><th class="num">Pend. Entrega</th><th class="num">Brecha Técnica</th><th class="num">Desestimados</th><th class="num">Avance</th><th>Estado Gestión</th><th>Qué falta</th><th>Detalle</th></tr></thead><tbody>${ticketHtml || '<tr><td colspan="10">Sin registros para esta categoría.</td></tr>'}</tbody></table></div>
+  </div>`;
+  root.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function cerrarDetalleSaneamiento() { const r=$('#saneamientoDetalle'); if(r) r.innerHTML=''; }
+
+function drillSaneamientoTicket(tktNum) {
+  const t = buildSaneamientoTicketData(state.raw).find(x => x.ticket === tktNum);
+  if (!t) return;
+  const rows = t.servs;
+  const content = `<div style="background:#FAF8F5;border:1px solid var(--k-line);border-radius:8px;padding:14px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+      <div><b>Ticket:</b> <span class="mono" style="color:var(--k-red);font-weight:800;">${esc(t.ticket)}</span></div>
+      <div><b>Servidores únicos:</b> ${t.servs.length}</div><div><b>Activos:</b> ${t.activos.length}</div>
+      <div><b>Listos:</b> <span style="color:var(--c-ok);font-weight:800;">${t.listos.length}</span></div>
+      <div><b>Con brecha:</b> <span style="color:var(--c-alert);font-weight:800;">${t.conBrecha.length}</span></div>
+      <div><b>Avance:</b> ${t.pctServ.toFixed(1)}%</div><div><b>Estado gestión:</b> ${esc(t.estadoAprov)}</div>
+    </div></div>
+    <div class="tw" style="max-height:55vh;"><table class="dt"><thead><tr><th>Servidor Destino</th><th>Entrega</th><th>Qualys</th><th>Antivirus</th><th>Hardening S.O</th><th>Parchado</th><th>Hardening Sub</th><th>Backup</th><th>Monitoreo</th><th>Compliance</th><th>Faltante</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td class="mono" style="font-weight:800;color:var(--k-red);">${esc(r.hostDestino)}</td><td>${esc(r.estadoEntrega)}</td>
+      <td>${renderCellControl(r.qualys,r.okQualys)}</td><td>${renderCellControl(r.av,r.okAv)}</td><td>${renderCellControl(r.remSo,r.okRemSo)}</td><td>${renderCellControl(r.parchado,r.okParchado)}</td><td>${renderCellControl(r.remSub,r.okRemSub)}</td><td>${renderCellControl(r.bkp,r.okBkp)}</td><td>${renderCellControl(r.mon,r.okMon)}</td>
+      <td><span class="badge ${r.esServidorDesestimado?'badge-neutral':r.isServerCompliant?'badge-ok':'badge-alert'}">${r.esServidorDesestimado?'N/A':r.isServerCompliant?'OK':'BRECHA'}</span></td>
+      <td style="font-size:11px;">${esc(r.esServidorDesestimado?'Desestimado':r.controlesFaltantes.join(', ') || 'Sin faltantes')}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  const root = $('#saneamientoDetalle');
+  if (!root) return;
+  root.innerHTML = `<div class="tile" style="border-left:4px solid var(--k-red);"><div class="th"><div><h3>Auditoría ejecutiva del Ticket ${esc(t.ticket)}</h3><div class="sub">Detalle servidor por servidor y controles de compliance.</div></div><button class="btn btn-ghost btn-sm" onclick="cerrarDetalleSaneamiento()">Ocultar detalle</button></div>${content}</div>`;
+  root.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function renderSaneamientoTickets() {
+  const ticketRows = buildSaneamientoTicketData(state.view);
+  const grupos = {
+    SANEADO: ticketRows.filter(t=>t.codigo==='SANEADO'),
+    GA: ticketRows.filter(t=>t.codigo==='GA'),
+    TECNICO: ticketRows.filter(t=>t.codigo==='TECNICO'),
+    GESTION: ticketRows.filter(t=>t.codigo==='GESTION'),
+    DESESTIMADO: ticketRows.filter(t=>t.codigo==='DESESTIMADO')
+  };
+  const servTotal = saneamientoServidoresUnicos(ticketRows);
   const servActivos = new Set(ticketRows.flatMap(t=>t.activos.map(s=>s.hostDestinoKey))).size;
   const servListos = new Set(ticketRows.flatMap(t=>t.listos.map(s=>s.hostDestinoKey))).size;
+  const card = (code,label,cls,sub) => `<div class="kpi-card ${cls} clickable" onclick="drillSaneamientoCategoria('${code}','${label}')" title="Clic para auditar tickets y servidores"><div class="lbl">${label} ↗</div><div class="val">${fmt(grupos[code].length)} <small style="font-size:13px">(${pct(grupos[code].length,ticketRows.length)})</small></div><div class="sub">${fmt(saneamientoServidoresUnicos(grupos[code]))} servidores únicos · ${sub}</div></div>`;
 
-  $('#tabBody').innerHTML = `
-    <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
-      <div class="kpi-card info"><div class="lbl">Universo de Tickets</div><div class="val">${fmt(ticketRows.length)}</div><div class="sub">${fmt(servTotal)} servidores destino únicos asociados</div></div>
-      <div class="kpi-card ok"><div class="lbl">Tickets Saneados 100%</div><div class="val">${fmt(saneados)} <small style="font-size:13px">(${pct(saneados,ticketRows.length)})</small></div><div class="sub">Servidor listo + sin observación de gestión</div></div>
-      <div class="kpi-card alert"><div class="lbl">Pendientes Reales</div><div class="val">${fmt(pendientes)}</div><div class="sub">Falta entrega y/o compliance técnico</div></div>
-      <div class="kpi-card ga"><div class="lbl">Pend. Validación G.A</div><div class="val">${fmt(ga)}</div><div class="sub">Incluye tickets con validación de Gestión de Activos</div></div>
-      <div class="kpi-card warn"><div class="lbl">Listos Técnicamente / Obs. Gestión</div><div class="val">${fmt(gestion)}</div><div class="sub">Servidores listos, ticket aún observado</div></div>
-      <div class="kpi-card"><div class="lbl">Tickets Desestimados</div><div class="val">${fmt(desest)}</div><div class="sub">Sin servidores activos por sanear</div></div>
+  $('#tabBody').innerHTML = `<div class="tile" style="margin-bottom:14px;border-left:4px solid var(--k-red);"><div class="th"><div><h3>Estado Ejecutivo de Saneamiento</h3><div class="sub">Lectura gerencial del universo: Ticket → Servidores → Compliance técnico → Estado de gestión. Haz clic en cualquier indicador para auditar su composición.</div></div></div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:12.5px;"><b>Regla de cierre:</b><span>Un ticket está saneado sólo cuando <b>todos sus servidores activos</b> están entregados/aceptados, cumplen los <b>7 controles</b> y no existe observación vigente de gestión.</span></div></div>
+    <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));">
+      <div class="kpi-card info clickable" onclick="drillSaneamientoCategoria('__ALL__','Universo total')"><div class="lbl">Universo de Tickets ↗</div><div class="val">${fmt(ticketRows.length)}</div><div class="sub">${fmt(servTotal)} servidores destino únicos</div></div>
+      ${card('SANEADO','Saneados / Validados','ok','cierre integral confirmado')}
+      ${card('GA','Saneados técnicamente · Pend. G.A','ga','sin brecha técnica; falta validación')}
+      ${card('TECNICO','Pendientes por Brecha Técnica','alert','compliance y/o entrega pendiente')}
+      ${card('GESTION','Pendientes por Gestión','warn','servidores listos; gestión pendiente')}
+      ${card('DESESTIMADO','Desestimados','','sin servidores activos por sanear')}
     </div>
-    <div class="banner-avance" style="border-left-color:var(--c-blue);">
-      <div class="ba-header"><div><span class="ba-title">Avance físico de servidores involucrados</span><span style="margin-left:8px;color:var(--k-slate);">${fmt(servListos)} de ${fmt(servActivos)} servidores activos listos (${pct(servListos,servActivos)})</span></div></div>
-      <div class="progress-bar-wrap"><div class="progress-fill-ok" style="width:${pct(servListos,servActivos)}"></div><div class="progress-fill-pend" style="width:${pct(servActivos-servListos,servActivos)}"></div></div>
-    </div>
-    <div class="tile">
-      <div class="th" style="flex-wrap:wrap;"><div><h3>Matriz Maestra de Saneamiento por Ticket</h3><div class="sub">Un ticket se considera saneado sólo cuando todos sus servidores activos están entregados/aceptados, cumplen compliance y el ticket no mantiene observaciones de gestión.</div></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="tbSearchSan" type="text" placeholder="Buscar ticket, servidor, faltante..." style="min-width:260px;"><select id="selSan"><option value="__ALL__">Todos los estados</option><option value="SANEADO">Saneados</option><option value="PENDIENTE">Pendientes reales</option><option value="GA">Pend. G.A</option><option value="GESTION">Obs. Gestión</option><option value="DESESTIMADO">Desestimados</option></select></div>
-      </div>
-      <div class="tw" style="max-height:600px;"><table class="dt"><thead><tr><th>Ticket</th><th>Estado Saneamiento</th><th>Grupo / Q</th><th class="num">Serv. Únicos</th><th class="num">Activos</th><th class="num">Listos</th><th class="num">Pend. Entrega</th><th class="num">Brecha Técnica</th><th class="num">Avance Serv.</th><th>Estado Ticket</th><th>Observación Gestión</th><th>¿Qué falta para sanear?</th><th>Acción</th></tr></thead><tbody id="tbodySan"></tbody></table></div>
-    </div>`;
+    ${(() => {
+      const uListos = new Set(ticketRows.flatMap(t=>t.listos.map(s=>s.hostDestinoKey))).size;
+      const uPend = new Set(ticketRows.flatMap(t=>t.pendEntrega.map(s=>s.hostDestinoKey))).size;
+      const uBrecha = new Set(ticketRows.flatMap(t=>t.conBrecha.map(s=>s.hostDestinoKey))).size;
+      const uDes = new Set(ticketRows.flatMap(t=>t.desestimados.map(s=>s.hostDestinoKey))).size;
+      const suma = uListos+uPend+uBrecha+uDes;
+      return `<div class="tile" style="margin-bottom:14px;border-left:4px solid var(--c-blue);"><div class="th"><div><h3>Conciliación del Universo de Servidores</h3><div class="sub">Categorías mutuamente excluyentes: cada servidor se contabiliza una sola vez.</div></div></div><div class="row" style="grid-template-columns:repeat(auto-fit,minmax(165px,1fr));margin-bottom:10px;"><div class="kpi-card info"><div class="lbl">Universo</div><div class="val">${fmt(servTotal)}</div></div><div class="kpi-card ok"><div class="lbl">Listos</div><div class="val">${fmt(uListos)}</div></div><div class="kpi-card warn"><div class="lbl">Pend. entrega / aceptación</div><div class="val">${fmt(uPend)}</div></div><div class="kpi-card alert"><div class="lbl">Brecha técnica</div><div class="val">${fmt(uBrecha)}</div><div class="sub">Entregados pero no compliance</div></div><div class="kpi-card"><div class="lbl">Desestimados</div><div class="val">${fmt(uDes)}</div></div></div><div style="padding:10px 12px;background:#FAF8F5;border:1px solid var(--k-line);border-radius:6px;font-size:13px;"><b>${fmt(uListos)} Listos + ${fmt(uPend)} Pendientes de entrega + ${fmt(uBrecha)} Brecha técnica + ${fmt(uDes)} Desestimados = ${fmt(suma)} servidores</b> ${suma===servTotal?'✅ Conciliado con el universo':'⚠️ Revisar conciliación'}</div></div>`;
+    })()}
+    <div class="tile"><div class="th" style="flex-wrap:wrap;"><div><h3>Matriz Maestra de Saneamiento por Ticket</h3><div class="sub">Detalle operativo conciliado con la lectura ejecutiva superior.</div></div><div style="display:flex;gap:8px;flex-wrap:wrap;"><input id="tbSearchSan" type="text" placeholder="Buscar ticket, servidor, faltante..." style="min-width:260px;"><select id="selSan"><option value="__ALL__">Todos los estados</option><option value="SANEADO">Saneados / Validados</option><option value="GA">Pend. G.A</option><option value="TECNICO">Brecha Técnica</option><option value="GESTION">Pend. Gestión</option><option value="DESESTIMADO">Desestimados</option></select></div></div>
+    <div class="tw" style="max-height:600px;"><table class="dt"><thead><tr><th>Ticket</th><th>Estado Saneamiento</th><th>Grupo / Q</th><th class="num">Serv. Únicos</th><th class="num">Activos</th><th class="num">Listos</th><th class="num">Pend. Entrega</th><th class="num">Brecha Técnica</th><th class="num">Avance</th><th>Estado Gestión</th><th>Qué falta para sanear</th><th>Acción</th></tr></thead><tbody id="tbodySan"></tbody></table></div></div>
+    <div id="saneamientoDetalle" style="margin-top:14px;scroll-margin-top:150px;"></div>`;
 
-  const paint = list => {
-    $('#tbodySan').innerHTML = list.map(t => {
-      const faltan = [];
-      if (t.pendEntrega.length) faltan.push(`${t.pendEntrega.length} serv. pendientes de entrega/aceptación`);
-      if (t.conBrecha.length) faltan.push(`${t.conBrecha.length} serv. con brecha (${t.controlesTxt})`);
-      if (t.pendGA) faltan.push('Validación Gestión de Activos');
-      else if (t.obsGestion) faltan.push('Cerrar observación/desvío del ticket');
-      if (t.faltantesGestion) faltan.push(t.faltantesGestion);
-      const badge=t.codigo==='SANEADO'?'badge-ok':t.codigo==='DESESTIMADO'?'badge-neutral':t.codigo==='GA'?'badge-ga':t.codigo==='GESTION'?'badge-warn':'badge-alert';
-      return `<tr><td class="mono" style="font-weight:800;color:var(--k-red);">${esc(t.ticket)}</td><td><span class="badge ${badge}">${esc(t.estado)}</span></td><td>${esc(t.grupo)}<br><small>${esc(t.q)}</small></td><td class="num">${t.servs.length}</td><td class="num">${t.activos.length}</td><td class="num" style="color:var(--c-ok);font-weight:700;">${t.listos.length}</td><td class="num" style="color:${t.pendEntrega.length?'var(--c-alert)':'inherit'};">${t.pendEntrega.length}</td><td class="num" style="color:${t.conBrecha.length?'var(--c-alert)':'inherit'};">${t.conBrecha.length}</td><td class="num"><b>${t.pctServ.toFixed(1)}%</b></td><td>${esc(t.estadoActual)}<br><small>${esc(t.estadoAprov)}</small></td><td><span class="badge ${t.pendGA?'badge-ga':t.obsGestion?'badge-alert':'badge-ok'}">${t.pendGA?'PEND. G.A':t.obsGestion?'OBSERVADO':'SIN OBS.'}</span></td><td style="min-width:300px;font-size:11px;">${esc(faltan.join(' | ') || 'Sin pendientes')}</td><td><button class="btn btn-ghost btn-sm" onclick="abrirAuditoriaTicket('${esc(t.ticket)}')">Auditar</button></td></tr>`;
-    }).join('');
-  };
+  const paint = list => { $('#tbodySan').innerHTML = list.map(t => {
+    const faltan=[]; if(t.pendEntrega.length)faltan.push(`${t.pendEntrega.length} serv. pendientes de entrega/aceptación`); if(t.conBrecha.length)faltan.push(`${t.conBrecha.length} serv. con brecha (${t.controlesTxt})`); if(t.pendGA)faltan.push('Validación Gestión de Activos'); else if(t.obsGestion)faltan.push('Cerrar observación vigente de gestión'); if(t.faltantesGestion)faltan.push(t.faltantesGestion);
+    const badge=t.codigo==='SANEADO'?'badge-ok':t.codigo==='DESESTIMADO'?'badge-neutral':t.codigo==='GA'?'badge-ga':t.codigo==='GESTION'?'badge-warn':'badge-alert';
+    return `<tr><td class="mono" style="font-weight:800;color:var(--k-red);">${esc(t.ticket)}</td><td><span class="badge ${badge}">${esc(t.estado)}</span></td><td>${esc(t.grupo)}<br><small>${esc(t.q)}</small></td><td class="num">${t.servs.length}</td><td class="num">${t.activos.length}</td><td class="num" style="color:var(--c-ok);font-weight:700;">${t.listos.length}</td><td class="num">${t.pendEntrega.length}</td><td class="num" style="color:${t.conBrecha.length?'var(--c-alert)':'inherit'};font-weight:700;">${t.conBrecha.length}</td><td class="num"><b>${t.pctServ.toFixed(1)}%</b></td><td>${esc(t.estadoAprov)}</td><td style="min-width:300px;font-size:11px;">${esc(faltan.join(' | ')||'Sin pendientes')}</td><td><button class="btn btn-ghost btn-sm" onclick="drillSaneamientoTicket('${esc(t.ticket)}')">Auditar</button></td></tr>`;
+  }).join(''); };
   paint(ticketRows);
-  const filter=()=>{ const q=norm($('#tbSearchSan').value), st=$('#selSan').value; let x=ticketRows; if(st!=='__ALL__')x=x.filter(t=>t.codigo===st); if(q)x=x.filter(t=>norm(t.ticket).includes(q)||norm(t.estado).includes(q)||norm(t.faltantesGestion).includes(q)||norm(t.controlesTxt).includes(q)||t.servs.some(s=>norm(s.hostDestino).includes(q)||norm(s.servidor).includes(q))); paint(x); };
+  const filter=()=>{const q=norm($('#tbSearchSan').value),st=$('#selSan').value;let x=ticketRows;if(st!=='__ALL__')x=x.filter(t=>t.codigo===st);if(q)x=x.filter(t=>norm(t.ticket).includes(q)||norm(t.estado).includes(q)||norm(t.faltantesGestion).includes(q)||norm(t.controlesTxt).includes(q)||t.servs.some(s=>norm(s.hostDestino).includes(q)||norm(s.servidor).includes(q)));paint(x);};
   $('#tbSearchSan').oninput=filter; $('#selSan').onchange=filter;
 }
 
@@ -2030,8 +1938,13 @@ function renderCronograma() {
   const servPendHardening = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
 
   // Periodos dinámicos: se obtienen directamente de las fechas reales del Excel.
+  const nciDisponibles = uniq(dedup.map(r => r.nci).filter(Boolean)).sort();
+  const nciSelActivos = state.selectedCalNcis && state.selectedCalNcis.size > 0 ? state.selectedCalNcis : new Set(nciDisponibles);
+  const baseCalendarioNci = dedup.filter(r => nciSelActivos.has(r.nci));
+  const activosCalendarioNci = baseCalendarioNci.filter(r => !r.esServidorDesestimado);
+
   const mesesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const mesesKeys = uniq(dedup.filter(r => r.fechaRemSoObj).map(r => {
+  const mesesKeys = uniq(baseCalendarioNci.filter(r => r.fechaRemSoObj).map(r => {
     const y = r.fechaRemSoObj.getFullYear();
     const m = String(r.fechaRemSoObj.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}`;
@@ -2054,11 +1967,11 @@ function renderCronograma() {
 
   let servidoresEnMes = [];
   if (state.selectedCalMonth === 'PEND_PROG') {
-    servidoresEnMes = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE' && !r.fechaRemSoObj);
+    servidoresEnMes = activosCalendarioNci.filter(r => r.estadoRemediacionSO === 'PENDIENTE' && !r.fechaRemSoObj);
   } else if (state.selectedCalMonth === 'NO_APLICA') {
-    servidoresEnMes = dedup.filter(r => r.estadoRemediacionSO === 'NO_APLICA');
+    servidoresEnMes = baseCalendarioNci.filter(r => r.estadoRemediacionSO === 'NO_APLICA');
   } else {
-    servidoresEnMes = dedup.filter(r => {
+    servidoresEnMes = baseCalendarioNci.filter(r => {
       if (!r.fechaRemSoObj) return false;
       const y = r.fechaRemSoObj.getFullYear();
       const m = String(r.fechaRemSoObj.getMonth() + 1).padStart(2, '0');
@@ -2159,6 +2072,20 @@ function renderCronograma() {
                 </option>
               `).join('')}
             </select>
+            <div class="sl" style="margin-left:8px;">
+              <label>NCI (Múltiple)</label>
+              <button type="button" class="multi-btn" id="btnCalNciToggle" style="min-width:230px;">
+                <span id="txtCalNciLabel" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;">Todos los NCI</span>
+                <span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span>
+              </button>
+              <div class="multi-dropdown hide" id="dropdownCalNci" style="min-width:300px;">
+                <label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;">
+                  <input type="checkbox" id="chkCalNciAll" ${nciSelActivos.size === nciDisponibles.length ? 'checked' : ''}> Seleccionar Todos
+                </label>
+                <div class="multi-divider"></div>
+                ${nciDisponibles.map(n => `<label class="multi-opt"><input type="checkbox" class="chk-cal-nci" value="${esc(n)}" ${nciSelActivos.has(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}
+              </div>
+            </div>
           </div>
           <div style="font-size:12px; color:var(--k-slate);">
             Total en este periodo: <b>${servidoresEnMes.length}</b> servidores
@@ -2220,9 +2147,68 @@ function renderCronograma() {
     </div>
   `;
 
-  $('#selCalMes').onchange = (e) => {
-    cambiarMesCalendario(e.target.value);
+  const updateCalNciLabel = () => {
+    const selected = state.selectedCalNcis && state.selectedCalNcis.size > 0 ? state.selectedCalNcis : new Set(nciDisponibles);
+    const lbl = $('#txtCalNciLabel');
+    if (!lbl) return;
+    if (selected.size === nciDisponibles.length) lbl.textContent = `Todos los NCI (${nciDisponibles.length})`;
+    else if (selected.size === 0) lbl.textContent = 'Ningún NCI';
+    else if (selected.size <= 2) lbl.textContent = Array.from(selected).join(', ');
+    else lbl.textContent = `${selected.size} NCI seleccionados`;
   };
+  updateCalNciLabel();
+
+  $('#btnCalNciToggle').onclick = e => {
+    e.stopPropagation();
+    const dd = $('#dropdownCalNci');
+    const wasOpen = !dd.classList.contains('hide');
+    dd.classList.toggle('hide');
+    if (wasOpen) renderCronograma();
+  };
+  $('#chkCalNciAll').onchange = e => {
+    const checked = e.target.checked;
+    state.selectedCalNcis = checked ? new Set(nciDisponibles) : new Set();
+    $$('.chk-cal-nci').forEach(c => { c.checked = checked; });
+    state.selectedCalDay = null;
+    updateCalNciLabel();
+    // Mantener el desplegable abierto mientras el usuario continúa seleccionando.
+    $('#chkCalNciAll').checked = checked;
+  };
+  $$('.chk-cal-nci').forEach(c => {
+    c.onchange = () => {
+      // Inicializar una sola vez; un Set vacío es una selección válida (ningún NCI).
+      if (!state.selectedCalNcis) state.selectedCalNcis = new Set(nciDisponibles);
+      if (c.checked) state.selectedCalNcis.add(c.value); else state.selectedCalNcis.delete(c.value);
+      const allBox = $('#chkCalNciAll');
+      if (allBox) allBox.checked = state.selectedCalNcis.size === nciDisponibles.length;
+      state.selectedCalDay = null;
+      updateCalNciLabel();
+      // Refrescar el calendario sólo al cerrar el selector para permitir selección múltiple continua.
+    };
+  });
+
+  // Al hacer clic fuera del multiselect, aplicar todas las selecciones de una sola vez.
+  const calNciWrap = $('#btnCalNciToggle').closest('.sl');
+  const closeCalNciAndApply = e => {
+    const dd = $('#dropdownCalNci');
+    if (!dd || dd.classList.contains('hide')) return;
+    if (calNciWrap && calNciWrap.contains(e.target)) return;
+    dd.classList.add('hide');
+    document.removeEventListener('click', closeCalNciAndApply, true);
+    renderCronograma();
+  };
+  // El selector de mes se enlaza al final, una vez reconstruido e inicializado todo el multiselect NCI.
+  // Cada cambio de mes genera un DOM nuevo y renderCronograma() vuelve a enlazar estos controles.
+  const selCalMes = $('#selCalMes');
+  if (selCalMes) {
+    selCalMes.onchange = (e) => {
+      state.selectedCalMonth = e.target.value;
+      state.selectedCalDay = null;
+      renderCronograma();
+    };
+  }
+
+  setTimeout(() => document.addEventListener('click', closeCalNciAndApply, true), 0);
 }
 
 function renderHardening() {
@@ -2235,6 +2221,13 @@ function renderHardening() {
   const pendHardSub = activos.filter(r => !r.okRemSub);
   const pendParchado = activos.filter(r => !r.okParchado);
   const conCualquierBrecha = activos.filter(r => !r.isServerCompliant);
+
+  // Lenguaje gerencial: Ticket es la unidad principal; Servidor es la equivalencia operativa.
+  const ticketsUnicosDe = rows => new Set(rows.map(r => r.ticketAprov).filter(Boolean)).size;
+  const tPendHardSO = ticketsUnicosDe(pendHardSO);
+  const tPendHardSub = ticketsUnicosDe(pendHardSub);
+  const tPendParchado = ticketsUnicosDe(pendParchado);
+  const tConCualquierBrecha = ticketsUnicosDe(conCualquierBrecha);
 
   const tktAllMap = computeTicketsMap(v);
   const tktsBloqueados = Object.keys(tktAllMap).filter(t => tktAllMap[t].conBrechaTecnica > 0);
@@ -2260,24 +2253,24 @@ function renderHardening() {
   $('#tabBody').innerHTML = `
     <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));">
       <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
-        <div class="lbl">Falta Hardening S.O</div>
-        <div class="val">${fmt(pendHardSO.length)} <small style="font-size:14px;font-weight:700">(${pct(pendHardSO.length, totActivos)})</small></div>
-        <div class="sub">Servidores activos con remediación S.O pendiente</div>
+        <div class="lbl">Tickets con Hardening S.O pendiente</div>
+        <div class="val">${fmt(tPendHardSO)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Representan ${fmt(pendHardSO.length)} servidores únicos con remediación S.O pendiente</div>
       </div>
       <div class="kpi-card warn" style="border-left:4px solid var(--c-warn);">
-        <div class="lbl">Falta Hardening Subsistema</div>
-        <div class="val">${fmt(pendHardSub.length)} <small style="font-size:14px;font-weight:700">(${pct(pendHardSub.length, totActivos)})</small></div>
-        <div class="sub">Servidores con remediación de componentes pendiente</div>
+        <div class="lbl">Tickets con Hardening Subsistema pendiente</div>
+        <div class="val">${fmt(tPendHardSub)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Representan ${fmt(pendHardSub.length)} servidores únicos con remediación de subsistema pendiente</div>
       </div>
       <div class="kpi-card warn" style="border-left:4px solid var(--c-purple);">
-        <div class="lbl">Falta Parchado de Seguridad</div>
-        <div class="val">${fmt(pendParchado.length)} <small style="font-size:14px;font-weight:700">(${pct(pendParchado.length, totActivos)})</small></div>
-        <div class="sub">Servidores sin parchado verificado</div>
+        <div class="lbl">Tickets con Parchado pendiente</div>
+        <div class="val">${fmt(tPendParchado)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Representan ${fmt(pendParchado.length)} servidores únicos sin parchado verificado</div>
       </div>
       <div class="kpi-card ok" style="border-left:4px solid var(--c-ok);">
-        <div class="lbl">Tickets Bloqueados por Compliance</div>
-        <div class="val">${fmt(tktsBloqueados.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
-        <div class="sub">No entregables por tener servidores con brecha</div>
+        <div class="lbl">Tickets con alguna brecha de Compliance</div>
+        <div class="val">${fmt(tConCualquierBrecha)} <small style="font-size:14px;font-weight:700">tickets</small></div>
+        <div class="sub">Representan ${fmt(conCualquierBrecha.length)} servidores únicos con al menos un control pendiente</div>
       </div>
     </div>
 
@@ -2653,6 +2646,7 @@ function renderQBreakdown() {
           <thead>
             <tr>
               <th>Trimestre (Q - IBK)</th>
+              <th class="num">Tickets</th>
               <th class="num">Servidores Destino</th>
               <th class="num">Relaciones Apps</th>
               <th class="num">Tkts Todo OK</th>
@@ -2717,10 +2711,12 @@ function renderGrupos() {
     const servsGA = dedup.filter(r => tktsGA.includes(r.ticketAprov)).length;
     const servsPend = dedup.filter(r => tktsPend.includes(r.ticketAprov)).length;
 
-    totTkts += countTkts; totServs += dedup.length;
-    tOk += tktsOk.length; sOk += servsOk;
-    tGa += tktsGA.length; sGa += servsGA;
-    tPend += tktsPend.length; sPend += servsPend;
+    // Los subtotales por grupo pueden compartir Hostname_Destino.
+    // Los consolidados globales se calculan más abajo sobre el universo completo deduplicado.
+    totTkts += countTkts;
+    tOk += tktsOk.length;
+    tGa += tktsGA.length;
+    tPend += tktsPend.length;
 
     return {
       name: gName, countTkts, dedupCount: dedup.length,
@@ -2729,6 +2725,25 @@ function renderGrupos() {
       tPend: tktsPend.length, sPend
     };
   });
+
+  // Consolidado global: deduplicar Hostname_Destino sobre toda la vista, no sumar subtotales por grupo.
+  const globalTktMap = computeTicketsMap(v);
+  const globalTkts = Object.keys(globalTktMap);
+  const globalOkTkts = globalTkts.filter(t => {
+    const i = globalTktMap[t];
+    return !i.tieneObsTicket && !i.esPendienteGA && i.pendientesEntrega === 0 && i.conBrechaTecnica === 0 && i.entregados > 0;
+  });
+  const globalGaTkts = globalTkts.filter(t => globalTktMap[t].esPendienteGA);
+  const globalPendTkts = globalTkts.filter(t => !globalOkTkts.includes(t) && !globalGaTkts.includes(t));
+  const globalDedup = dedupeByDestServer(v);
+  totTkts = globalTkts.length;
+  totServs = globalDedup.length;
+  tOk = globalOkTkts.length;
+  tGa = globalGaTkts.length;
+  tPend = globalPendTkts.length;
+  sOk = dedupeByDestServer(v.filter(r => globalOkTkts.includes(r.ticketAprov))).length;
+  sGa = dedupeByDestServer(v.filter(r => globalGaTkts.includes(r.ticketAprov))).length;
+  sPend = dedupeByDestServer(v.filter(r => globalPendTkts.includes(r.ticketAprov))).length;
 
   $('#tabBody').innerHTML = `
     <div class="tile">
@@ -2753,7 +2768,7 @@ function renderGrupos() {
             ${groupsInfo.map(g => `
               <tr>
                 <td style="font-weight:700;text-align:left;">${esc(g.name)}</td>
-                <td class="num" style="border-right:1px solid var(--k-line);"><b>${g.countTkts}</b> tkts / ${g.dedupCount} srvs</td>
+                <td class="num" style="border-right:1px solid var(--k-line);cursor:pointer;background:#FAFAFA;" onclick="drillGrupoDetail('${esc(g.name)}', 'TOTAL')" title="Ver todos los tickets y servidores del grupo"><b>${g.countTkts}</b> tkts / ${g.dedupCount} srvs ↘</td>
                 
                 <td class="num" style="color:var(--c-ok);cursor:pointer;background:#FAFAFA;" onclick="drillGrupoDetail('${esc(g.name)}', 'OK')" title="Ver servidores Aceptados">
                   <span style="font-size:14px;font-weight:800;">${g.tOk}</span> tkts <br>
@@ -2775,97 +2790,76 @@ function renderGrupos() {
           <tfoot>
             <tr style="background:var(--k-charcoal);color:#fff;font-weight:700;">
               <td style="text-align:left;padding:10px;">TOTAL CONSOLIDADO</td>
-              <td class="num" style="border-right:1px solid var(--k-slate);padding:10px;">${totTkts} tkts / ${totServs} srvs</td>
-              <td class="num" style="padding:10px;">${tOk} tkts (${sOk} srvs)</td>
-              <td class="num" style="padding:10px;">${tGa} tkts (${sGa} srvs)</td>
-              <td class="num" style="padding:10px;">${tPend} tkts (${sPend} srvs)</td>
+              <td class="num" style="border-right:1px solid var(--k-slate);padding:10px;cursor:pointer;" onclick="drillGrupoDetail('__ALL__', 'TOTAL')">${totTkts} tkts / ${totServs} srvs ↘</td>
+              <td class="num" style="padding:10px;cursor:pointer;" onclick="drillGrupoDetail('__ALL__', 'OK')">${tOk} tkts (${sOk} srvs) ↘</td>
+              <td class="num" style="padding:10px;cursor:pointer;" onclick="drillGrupoDetail('__ALL__', 'GA')">${tGa} tkts (${sGa} srvs) ↘</td>
+              <td class="num" style="padding:10px;cursor:pointer;" onclick="drillGrupoDetail('__ALL__', 'PEND')">${tPend} tkts (${sPend} srvs) ↘</td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
+    <div id="grupoDetalleInferior" style="margin-top:14px;scroll-margin-top:150px;"></div>
   `;
 }
 
 function drillGrupoDetail(grupoName, tipo) {
-  const v = state.view.filter(r => r.grupoPrioridad === grupoName);
-  const dedup = dedupeByDestServer(v);
-  const tktGMap = computeTicketsMap(v);
-  
-  let targetTkts = [];
-  
-  Object.keys(tktGMap).forEach(t => {
-    const i = tktGMap[t];
-    const isOk = !i.tieneObsTicket && !i.esPendienteGA && i.pendientesEntrega === 0 && i.conBrechaTecnica === 0 && i.entregados > 0;
-    const isGa = i.esPendienteGA;
-    const isPend = !isOk && !isGa;
-    
-    if (tipo === 'OK' && isOk) targetTkts.push(t);
-    if (tipo === 'GA' && isGa) targetTkts.push(t);
-    if (tipo === 'PEND' && isPend) targetTkts.push(t);
+  const base = grupoName === '__ALL__' ? state.view : state.view.filter(r => r.grupoPrioridad === grupoName);
+  const dedup = dedupeByDestServer(base), tktGMap = computeTicketsMap(base), allTkts = Object.keys(tktGMap);
+  const isOk=t=>{const i=tktGMap[t];return !i.tieneObsTicket&&!i.esPendienteGA&&i.pendientesEntrega===0&&i.conBrechaTecnica===0&&i.entregados>0;};
+  const isGa=t=>tktGMap[t].esPendienteGA;
+  let targetTkts=allTkts; if(tipo==='OK')targetTkts=allTkts.filter(isOk); else if(tipo==='GA')targetTkts=allTkts.filter(isGa); else if(tipo==='PEND')targetTkts=allTkts.filter(t=>!isOk(t)&&!isGa(t));
+  const targetServs=dedup.filter(r=>targetTkts.includes(r.ticketAprov));
+  const titulo=tipo==='TOTAL'?'Total del Universo':tipo==='OK'?'Todo OK (Saneado)':tipo==='GA'?'Pendientes de Validación G.A':'Pendientes (Brechas de Gestión / Compliance)';
+  const grupo=grupoName==='__ALL__'?'TOTAL CONSOLIDADO':grupoName;
+  const ticketDetails = targetTkts.map(t => {
+    const i=tktGMap[t], sv=dedupeByDestServer(i.servidores), activos=sv.filter(r=>!r.esServidorDesestimado);
+    const okServ=activos.filter(r=>r.esServidorEntregadoIBK&&!r.esRechazadoNoAceptado&&r.isServerCompliant);
+    const pendServ=activos.filter(r=>!(r.esServidorEntregadoIBK&&!r.esRechazadoNoAceptado&&r.isServerCompliant));
+    const br=activos.filter(r=>!r.isServerCompliant), pe=activos.filter(r=>!r.esServidorEntregadoIBK||r.esRechazadoNoAceptado);
+    const falt=uniq(br.flatMap(r=>r.controlesFaltantes));
+    const completo=activos.length>0&&okServ.length===activos.length&&!i.tieneObsTicket&&!i.esPendienteGA;
+    const est=isOk(t)?'Todo OK':isGa(t)?'Pend. G.A':'Pendiente';
+    const pctComp=activos.length?(okServ.length/activos.length*100):100;
+    const faltTxt=falt.join(', ')||(i.tieneObsTicket?'Observación vigente de gestión':i.esPendienteGA?'Validación Gestión de Activos':'Sin pendientes');
+    return {t,i,sv,activos,okServ,pendServ,br,pe,falt,completo,est,pctComp,faltTxt};
   });
-
-  const targetServs = dedup.filter(r => targetTkts.includes(r.ticketAprov));
-  const titulo = tipo === 'OK' ? 'Todo OK (Saneado)' : (tipo === 'GA' ? 'Pendientes de Validación G.A' : 'Pendientes (Brechas de Gestión / Hardening)');
-  const color = tipo === 'OK' ? 'var(--c-ok)' : (tipo === 'GA' ? 'var(--c-ga)' : 'var(--c-alert)');
-
-  const content = `
-    <div style="margin-bottom:14px;font-size:13px;color:var(--k-slate);">
-      Mostrando <b>${targetServs.length} servidores</b> vinculados a <b>${targetTkts.length} tickets</b> en estado <b>${titulo}</b>.
-    </div>
-    <div class="tw" style="max-height: 50vh;">
-      <table class="dt">
-        <thead>
-          <tr>
-            <th>Ticket Aprov.</th>
-            <th>Servidor Destino</th>
-            <th>S.O. Familia</th>
-            <th>Estado Gestión (Ticket)</th>
-            <th>Estado Hardening (Servidor)</th>
-            <th>Detalle Faltante</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${targetServs.map(s => `
-            <tr>
-              <td class="mono font-weight:700;">${esc(s.ticketAprov)}</td>
-              <td class="mono" style="color:var(--k-red);font-weight:700;">${esc(s.hostDestino)}</td>
-              <td>${esc(s.soFamilia)}</td>
-              <td>
-                <span class="badge ${s.esPendienteGA ? 'badge-ga' : (s.tieneObservacionAprov ? 'badge-alert' : 'badge-ok')}">
-                  ${s.esPendienteGA ? 'PEND. G.A' : (s.tieneObservacionAprov ? 'OBSERVADO' : (norm(s.estadoAprov).includes('subsanado') ? 'SUBSANADO' : 'CERRADO/OK'))}
-                </span>
-              </td>
-              <td>
-                <span class="badge ${s.isServerCompliant ? 'badge-ok' : 'badge-alert'}">
-                  ${s.isServerCompliant ? 'CONFORME' : 'CON BRECHA TÉCNICA'}
-                </span>
-              </td>
-              <td style="font-size:11.5px;color:${!s.isServerCompliant || s.tieneObservacionAprov ? 'var(--c-alert)' : 'var(--c-ok)'};font-weight:600;">
-                ${!s.isServerCompliant ? `Brecha: ${esc(s.controlesFaltantes.join(', '))}` : (s.queFalta ? `Gestión: ${esc(s.queFalta)}` : 'Saneamiento Integral Completo')}
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  $('#modalRoot').innerHTML = `
-    <div class="backdrop" id="modalBackdrop">
-      <div class="modal" style="width: min(1000px, 95vw);">
-        <div class="modal-header" style="background:${color};">
-          <h3>Detalle: ${esc(grupoName)} - ${titulo}</h3>
-          <button class="btn-close" onclick="closeModal()">✕</button>
-        </div>
-        <div class="modal-body">${content}</div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cerrar</button>
-        </div>
-      </div>
-    </div>
-  `;
+  grupoDetalleContext={grupoName,tipo,grupo,titulo,ticketDetails,targetServs,allTkts};
+  grupoDetalleFiltro='ALL'; grupoDetalleSort={col:'ticket',asc:true};
+  renderGrupoDetalleInferior();
 }
+
+function filtrarGrupoDetalle(tipoFiltro){ grupoDetalleFiltro=tipoFiltro; renderGrupoDetalleInferior(false); }
+function ordenarGrupoDetalle(col){ if(grupoDetalleSort.col===col) grupoDetalleSort.asc=!grupoDetalleSort.asc; else grupoDetalleSort={col,asc:true}; renderGrupoDetalleInferior(false); }
+
+function renderGrupoDetalleInferior(scroll=true){
+  const ctx=grupoDetalleContext, root=$('#grupoDetalleInferior'); if(!ctx||!root)return;
+  const all=ctx.ticketDetails;
+  const ticketsCompletos=all.filter(x=>x.completo).length, ticketsIncompletos=all.length-ticketsCompletos;
+  const servOk=new Set(all.flatMap(x=>x.okServ.map(r=>r.hostDestinoKey))).size;
+  const servPend=new Set(all.flatMap(x=>x.pendServ.map(r=>r.hostDestinoKey))).size;
+  let list=all;
+  if(grupoDetalleFiltro==='COMP') list=all.filter(x=>x.completo);
+  else if(grupoDetalleFiltro==='INCOMP') list=all.filter(x=>!x.completo);
+  else if(grupoDetalleFiltro==='SERV_OK') list=all.filter(x=>x.okServ.length>0);
+  else if(grupoDetalleFiltro==='SERV_PEND') list=all.filter(x=>x.pendServ.length>0);
+  const val=(x,c)=>({ticket:x.t,servidores:x.sv.length,ok:x.okServ.length,pend:x.pendServ.length,completitud:x.pctComp,estado:x.est,entrega:x.pe.length,brecha:x.br.length,faltante:x.faltTxt}[c]);
+  list=[...list].sort((a,b)=>{let A=val(a,grupoDetalleSort.col),B=val(b,grupoDetalleSort.col); if(typeof A==='number'&&typeof B==='number') return grupoDetalleSort.asc?A-B:B-A; A=String(A).toLowerCase();B=String(B).toLowerCase();return A<B?(grupoDetalleSort.asc?-1:1):A>B?(grupoDetalleSort.asc?1:-1):0;});
+  const arrow=c=>grupoDetalleSort.col===c?(grupoDetalleSort.asc?'▲':'▼'):'↕';
+  const active=f=>grupoDetalleFiltro===f?'border:2px solid var(--c-blue);background:var(--c-blue-bg);':'';
+  const card=(f,cls,lbl,n,sub)=>`<div class="kpi-card ${cls} clickable" style="${active(f)}" onclick="filtrarGrupoDetalle('${f}')"><div class="lbl">${lbl} ↘</div><div class="val">${fmt(n)}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+  const rows=list.map(x=>`<tr><td class="mono" style="font-weight:800;color:var(--k-red);">${esc(x.t)}</td><td class="num"><b>${x.sv.length}</b></td><td class="num" style="color:var(--c-ok);font-weight:800;">${x.okServ.length}</td><td class="num" style="color:${x.pendServ.length?'var(--c-alert)':'inherit'};font-weight:800;">${x.pendServ.length}</td><td><span class="badge ${x.completo?'badge-ok':'badge-alert'}">${x.activos.length?`${x.okServ.length}/${x.activos.length} OK · ${x.pctComp.toFixed(0)}%`:'Sin activos'}</span></td><td><span class="badge ${x.est==='Todo OK'?'badge-ok':x.est==='Pend. G.A'?'badge-ga':'badge-alert'}">${x.est}</span></td><td class="num">${x.pe.length}</td><td class="num">${x.br.length}</td><td>${esc(x.faltTxt)}</td><td><button class="btn btn-ghost btn-sm" onclick="toggleGrupoTicketDetalle('${esc(x.t)}')">Ver servidores</button></td></tr><tr id="grupoTicket_${esc(x.t).replace(/[^A-Za-z0-9_-]/g,'_')}" class="hide"><td colspan="10" style="padding:0;background:#FAF8F5;"><div style="padding:12px 14px;border-left:3px solid var(--k-red);"><div style="font-weight:700;margin-bottom:8px;">Ticket ${esc(x.t)} · ${x.okServ.length} de ${x.activos.length} servidores activos OK ${x.completo?'✅ Ticket completo':'⚠️ Ticket incompleto'}</div><div class="tw" style="max-height:360px;"><table class="dt"><thead><tr><th>Servidor Destino</th><th>Entrega</th><th>Qualys</th><th>Antivirus</th><th>Hardening S.O</th><th>Parchado</th><th>Hardening Sub</th><th>Backup</th><th>Monitoreo</th><th>Resultado</th><th>Qué falta</th></tr></thead><tbody>${x.sv.map(r=>{const listo=!r.esServidorDesestimado&&r.esServidorEntregadoIBK&&!r.esRechazadoNoAceptado&&r.isServerCompliant;return `<tr><td class="mono" style="font-weight:800;color:var(--k-red);">${esc(r.hostDestino)}</td><td>${esc(r.estadoEntrega)}</td><td>${renderCellControl(r.qualys,r.okQualys)}</td><td>${renderCellControl(r.av,r.okAv)}</td><td>${renderCellControl(r.remSo,r.okRemSo)}</td><td>${renderCellControl(r.parchado,r.okParchado)}</td><td>${renderCellControl(r.remSub,r.okRemSub)}</td><td>${renderCellControl(r.bkp,r.okBkp)}</td><td>${renderCellControl(r.mon,r.okMon)}</td><td><span class="badge ${r.esServidorDesestimado?'badge-neutral':listo?'badge-ok':'badge-alert'}">${r.esServidorDesestimado?'N/A':listo?'OK':'PENDIENTE'}</span></td><td style="font-size:11px;">${esc(r.esServidorDesestimado?'Desestimado':(!r.esServidorEntregadoIBK||r.esRechazadoNoAceptado?'Entrega/Aceptación pendiente'+(r.controlesFaltantes.length?' + '+r.controlesFaltantes.join(', '):''):(r.controlesFaltantes.join(', ')||'Sin pendientes')))}</td></tr>`;}).join('')}</tbody></table></div></div></td></tr>`).join('');
+  root.innerHTML=`<div class="tile" style="border-left:4px solid var(--c-blue);"><div class="th"><div><h3>Detalle inferior · ${esc(ctx.grupo)} · ${esc(ctx.titulo)}</h3><div class="sub">Haz clic en las tarjetas para filtrar y en las cabeceras para ordenar ascendente/descendente.</div></div><button class="btn btn-ghost btn-sm" onclick="cerrarDetalleGrupo()">Ocultar detalle</button></div><div class="row" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">${card('ALL','info','Tickets',all.length,`de ${fmt(ctx.allTkts.length)} en el universo seleccionado`)}${card('COMP','ok','Tickets completos',ticketsCompletos,'Todos sus servidores activos OK')}${card('INCOMP','alert','Tickets incompletos',ticketsIncompletos,'Al menos un servidor o gestión pendiente')}${card('SERV_ALL','','Servidores totales',ctx.targetServs.length,'Hostname_Destino únicos')}${card('SERV_OK','ok','Servidores OK',servOk,'Tickets que contienen servidores OK')}${card('SERV_PEND','warn','Servidores pendientes',servPend,'Tickets que contienen servidores pendientes')}</div><div style="font-size:11.5px;color:var(--k-slate);margin:0 0 8px;">Mostrando <b>${list.length}</b> de <b>${all.length}</b> tickets según el filtro seleccionado.</div><div class="tw" style="max-height:620px;"><table class="dt" id="tblGrupoDetalle"><thead><tr><th class="sortable" onclick="ordenarGrupoDetalle('ticket')">Ticket <span class="sort-arrow">${arrow('ticket')}</span></th><th class="num sortable" onclick="ordenarGrupoDetalle('servidores')">Servidores <span class="sort-arrow">${arrow('servidores')}</span></th><th class="num sortable" onclick="ordenarGrupoDetalle('ok')">Serv. OK <span class="sort-arrow">${arrow('ok')}</span></th><th class="num sortable" onclick="ordenarGrupoDetalle('pend')">Serv. Pend. <span class="sort-arrow">${arrow('pend')}</span></th><th class="sortable" onclick="ordenarGrupoDetalle('completitud')">Completitud <span class="sort-arrow">${arrow('completitud')}</span></th><th class="sortable" onclick="ordenarGrupoDetalle('estado')">Estado <span class="sort-arrow">${arrow('estado')}</span></th><th class="num sortable" onclick="ordenarGrupoDetalle('entrega')">Pend. Entrega <span class="sort-arrow">${arrow('entrega')}</span></th><th class="num sortable" onclick="ordenarGrupoDetalle('brecha')">Brecha Compliance <span class="sort-arrow">${arrow('brecha')}</span></th><th class="sortable" onclick="ordenarGrupoDetalle('faltante')">Detalle faltante <span class="sort-arrow">${arrow('faltante')}</span></th><th>Auditoría</th></tr></thead><tbody>${rows||'<tr><td colspan="10">Sin registros.</td></tr>'}</tbody></table></div></div>`;
+  if(scroll) root.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function toggleGrupoTicketDetalle(ticket){
+  const id='grupoTicket_'+String(ticket).replace(/[^A-Za-z0-9_-]/g,'_');
+  const row=document.getElementById(id); if(row) row.classList.toggle('hide');
+}
+
+function cerrarDetalleGrupo(){const r=$('#grupoDetalleInferior');if(r)r.innerHTML='';grupoDetalleContext=null;}
+
 
 function renderRegularizacion() {
   const v = state.view;
@@ -2909,7 +2903,8 @@ function renderRegularizacion() {
             ${sorted.map(([cat, d]) => `
               <tr>
                 <td style="font-weight:700;"><span class="badge ${cat==='Todo ok'?'badge-ok':(cat.toLowerCase().includes('oc')||cat.toLowerCase().includes('activos')?'badge-ga':'badge-warn')}">${esc(cat)}</span></td>
-                <td class="num font-weight:700;">${fmt(d.total)}</td>
+                <td class="num" style="font-weight:800;color:var(--c-blue);">${fmt(d.tickets.size)} tkts</td>
+                <td class="num font-weight:700;">${fmt(d.total)} srvs</td>
                 <td class="num" style="color:var(--c-ok);font-weight:600;">${fmt(d.ambosOk)}</td>
                 <td class="num" style="color:var(--c-ga);font-weight:600;">${fmt(d.pendGA)}</td>
                 <td class="num" style="color:var(--c-alert);font-weight:600;">${fmt(d.dobleBrecha)}</td>
@@ -2931,15 +2926,16 @@ function renderControles() {
   const dedup = dedupeByDestServer(v);
   const tot = dedup.length || 1;
 
+  const ticketCount = rows => new Set(rows.map(r => r.ticketAprov).filter(Boolean)).size;
   const rows = [
-    { name: '1. Agente Qualys', ok: dedup.filter(r => r.okQualys).length, desc: 'Qualys instalado o validado como N/A' },
-    { name: '2. Antivirus Corporativo', ok: dedup.filter(r => r.okAv).length, desc: 'Antivirus activo o validado como N/A' },
-    { name: '3. Remediación S.O (Hardening)', ok: dedup.filter(r => r.okRemSo).length, desc: 'Hardening ejecutado o exento (N/A / Win2008)' },
-    { name: '4. Parchado S.O', ok: dedup.filter(r => r.okParchado).length, desc: 'Parchado de seguridad al día o exento (N/A)' },
-    { name: '5. Remediación Subsistema', ok: dedup.filter(r => r.okRemSub).length, desc: 'Hardening subsistema cerrado o No Aplica' },
-    { name: '6. Política & Ticket Backup', ok: dedup.filter(r => r.okBkp).length, desc: 'Backup activo con ticket o validado como N/A' },
-    { name: '7. Monitoreo Activo', ok: dedup.filter(r => r.okMon).length, desc: 'Monitoreo reportando o validado como N/A' }
-  ];
+    { name: '1. Agente Qualys', key:'okQualys', desc: 'Qualys instalado o validado como N/A' },
+    { name: '2. Antivirus Corporativo', key:'okAv', desc: 'Antivirus activo o validado como N/A' },
+    { name: '3. Remediación S.O (Hardening)', key:'okRemSo', desc: 'Hardening ejecutado o exento (N/A / Win2008)' },
+    { name: '4. Parchado S.O', key:'okParchado', desc: 'Parchado de seguridad al día o exento (N/A)' },
+    { name: '5. Remediación Subsistema', key:'okRemSub', desc: 'Hardening subsistema cerrado o No Aplica' },
+    { name: '6. Política & Ticket Backup', key:'okBkp', desc: 'Backup activo con ticket o validado como N/A' },
+    { name: '7. Monitoreo Activo', key:'okMon', desc: 'Monitoreo reportando o validado como N/A' }
+  ].map(x => { const okRows=dedup.filter(r=>r[x.key]); const gapRows=dedup.filter(r=>!r[x.key] && !r.esServidorDesestimado); return {...x, ok:okRows.length, gap:gapRows.length, ticketsGap:ticketCount(gapRows), ticketsOk:ticketCount(okRows)}; });
 
   $('#tabBody').innerHTML = `
     <div class="tile">
@@ -2955,8 +2951,9 @@ function renderControles() {
             <tr>
               <th>Control Técnico</th>
               <th>Descripción</th>
-              <th class="num">Conformes / N/A</th>
-              <th class="num">Brechas Reales</th>
+              <th class="num">Tickets con Brecha</th>
+              <th class="num">Servidores con Brecha</th>
+              <th class="num">Servidores Conformes / N/A</th>
               <th class="num">% Cumplimiento</th>
               <th>Estado</th>
             </tr>
@@ -2966,8 +2963,9 @@ function renderControles() {
               <tr>
                 <td style="font-weight:700;">${esc(r.name)}</td>
                 <td>${esc(r.desc)}</td>
+                <td class="num" style="font-weight:800;color:${r.ticketsGap>0?'var(--c-alert)':'var(--c-ok)'};">${fmt(r.ticketsGap)} tkts</td>
+                <td class="num" style="font-weight:700;color:${r.gap>0?'var(--c-alert)':'inherit'};">${fmt(r.gap)} srvs</td>
                 <td class="num" style="font-weight:600;color:var(--c-ok);">${fmt(r.ok)}</td>
-                <td class="num" style="font-weight:600;color:${(tot - r.ok)>0?'var(--c-alert)':'inherit'};">${fmt(tot - r.ok)}</td>
                 <td class="num" style="font-weight:700;">${pct(r.ok, tot)}</td>
                 <td>
                   <span class="badge ${(r.ok/tot)>=0.85 ? 'badge-ok' : ((r.ok/tot)>=0.6 ? 'badge-warn' : 'badge-alert')}">
@@ -2989,7 +2987,8 @@ function renderNci() {
   const nciMap = {};
   dedup.forEach(r => {
     const key = r.nci || 'Sin NCI';
-    if (!nciMap[key]) nciMap[key] = { total: 0, ambosOk: 0, pendGA: 0, dobleBrecha: 0, conObs: 0, entregados: 0, qs: {} };
+    if (!nciMap[key]) nciMap[key] = { total: 0, tickets:new Set(), ambosOk: 0, pendGA: 0, dobleBrecha: 0, conObs: 0, entregados: 0, qs: {} };
+    if (r.ticketAprov) nciMap[key].tickets.add(r.ticketAprov);
     nciMap[key].total++;
     if (r.condicionCodigo === 'AMBOS_OK') nciMap[key].ambosOk++;
     if (r.condicionCodigo === 'PEND_GA') nciMap[key].pendGA++;
@@ -3255,40 +3254,47 @@ function closeModal() { $('#modalRoot').innerHTML = ''; }
 
 function render() {
   destroyCharts();
-  renderKPIs();
+
+  // El resumen global de Tickets de Aprovisionamiento pertenece exclusivamente
+  // a la pestaña Entregables por Ticket. En las demás vistas no ocupa espacio.
+  const mostrarResumenEntregables = state.tab === 'entregables';
+  const bannerAvance = $('#bannerAvance');
+  const kpiStrip = $('#kpiStrip');
+  if (bannerAvance) bannerAvance.classList.toggle('hide', !mostrarResumenEntregables);
+  if (kpiStrip) kpiStrip.classList.toggle('hide', !mostrarResumenEntregables);
+  if (mostrarResumenEntregables) {
+    renderKPIs();
+  } else {
+    if (bannerAvance) bannerAvance.innerHTML = '';
+    if (kpiStrip) kpiStrip.innerHTML = '';
+  }
 
   const views = {
-    cockpit: renderCockpit,
     saneamiento: renderSaneamientoTickets,
     entregables: renderEntregables,
     informe: renderInforme,
     cronograma: renderCronograma,
     hardening: renderHardening,
-    qbreakdown: renderQBreakdown,
     grupos: renderGrupos,
-    regularizacion: renderRegularizacion,
     controles: renderControles,
     nci: renderNci,
     detalle: renderDetalle
   };
 
-  const activeRenderFn = views[state.tab] || renderCockpit;
+  const activeRenderFn = views[state.tab] || renderSaneamientoTickets;
   activeRenderFn();
 
   $('#viewTitle').textContent = {
-    cockpit: 'Cockpit Ejecutivo de Saneamiento Integral',
     saneamiento: '🎯 Saneamiento Integral de Tickets',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
     informe: '📑 Informe Técnico y Ejecutivo de Service Delivery',
     cronograma: '📅 Calendario Mensual de Remediación de Hardening',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
-    qbreakdown: 'Distribución por Trimestre (Todos los Qs)',
     grupos: 'Distribución por Grupos Prioritarios',
-    regularizacion: '¿Qué Falta Sanear? · Regularización',
     controles: 'Controles de Seguridad del Servidor',
     nci: 'Gestión de Non-Compliance (NCI)',
     detalle: 'Inventario de Servidores y Filtros'
-  }[state.tab] || 'Cockpit Ejecutivo';
+  }[state.tab] || '🎯 Saneamiento Integral de Tickets';
 
   const totServers = distinctDestServers(state.view);
   const totRows = state.view.length;
@@ -3357,8 +3363,6 @@ function initEvents() {
       'Condición Integral': r.condicionCruzada,
       'Estado Entrega': r.estadoEntrega,
       'Es Rechazado / No Aceptado': r.esRechazadoNoAceptado ? 'SI' : 'NO',
-      'SLA Superó 7d': (r.supero7Dias && !r.esRechazadoNoAceptado && !r.esServidorDesestimado) ? 'SI (ACEPTADO)' : 'NO',
-      'Días Hábiles Transcurridos': r.diasHabiles !== null ? r.diasHabiles : '',
       'Fecha Entrega IBK': r.fechaEntrega,
       'Siglas': r.siglas,
       'Ambiente': r.ambiente,
