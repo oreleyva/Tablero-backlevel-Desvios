@@ -2782,6 +2782,20 @@ function renderGrupos() {
         </table>
       </div>
     </div>
+    <div class="tile" style="margin-top:14px;border-left:4px solid var(--c-blue);">
+      <div class="th" style="margin-bottom:10px;"><div><h3>Conciliación Visual del Total Consolidado</h3><div class="sub"><b>${totTkts} tickets</b> = ${tOk} Todo OK + ${tGa} Pend. G.A. + ${tPend} Pendientes · Haz clic en un segmento para auditar su detalle.</div></div></div>
+      <div style="display:flex;width:100%;height:42px;border-radius:8px;overflow:hidden;border:1px solid var(--k-line);background:#f3f3f3;">
+        ${tOk>0?`<div onclick="drillGrupoDetail('__ALL__','OK')" title="Todo OK: ${tOk} tickets (${pct(tOk,totTkts)}) · ${sOk} servidores equivalentes" style="width:${(tOk/totTkts*100).toFixed(4)}%;background:var(--c-ok);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800;font-size:12px;min-width:${tOk?48:0}px;">${tOk}</div>`:''}
+        ${tGa>0?`<div onclick="drillGrupoDetail('__ALL__','GA')" title="Pend. G.A.: ${tGa} tickets (${pct(tGa,totTkts)}) · ${sGa} servidores equivalentes" style="width:${(tGa/totTkts*100).toFixed(4)}%;background:var(--c-ga);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800;font-size:12px;min-width:${tGa?48:0}px;">${tGa}</div>`:''}
+        ${tPend>0?`<div onclick="drillGrupoDetail('__ALL__','PEND')" title="Pendientes: ${tPend} tickets (${pct(tPend,totTkts)}) · ${sPend} servidores equivalentes" style="width:${(tPend/totTkts*100).toFixed(4)}%;background:var(--c-alert);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:800;font-size:12px;min-width:${tPend?48:0}px;">${tPend}</div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:10px;margin-top:10px;">
+        <div class="kpi-card ok clickable" onclick="drillGrupoDetail('__ALL__','OK')"><div class="lbl">✅ Tickets Todo OK</div><div class="val">${fmt(tOk)} <small style="font-size:13px">(${pct(tOk,totTkts)})</small></div><div class="sub">${fmt(sOk)} servidores únicos equivalentes</div></div>
+        <div class="kpi-card ga clickable" onclick="drillGrupoDetail('__ALL__','GA')"><div class="lbl">⏳ Tickets Pend. G.A.</div><div class="val">${fmt(tGa)} <small style="font-size:13px">(${pct(tGa,totTkts)})</small></div><div class="sub">${fmt(sGa)} servidores únicos equivalentes</div></div>
+        <div class="kpi-card alert clickable" onclick="drillGrupoDetail('__ALL__','PEND')"><div class="lbl">🚨 Tickets Pendientes</div><div class="val">${fmt(tPend)} <small style="font-size:13px">(${pct(tPend,totTkts)})</small></div><div class="sub">${fmt(sPend)} servidores únicos equivalentes</div></div>
+      </div>
+      <div style="margin-top:9px;font-size:11.5px;color:var(--k-slate);">Los servidores de las tres categorías son equivalencias operativas por ticket y pueden solaparse entre estados. El universo global permanece deduplicado en <b>${fmt(totServs)} servidores destino únicos</b>.</div>
+    </div>
     <div id="grupoDetalleInferior" style="margin-top:14px;scroll-margin-top:150px;"></div>
   `;
 }
