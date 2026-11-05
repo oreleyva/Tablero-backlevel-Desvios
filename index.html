@@ -488,7 +488,9 @@ const state = {
   sortHardening: { col: 'ambiente', asc: true },
   selectedCalMonth: '2026-10',
   selectedCalDay: null,
-  selectedCalNcis: new Set()
+  selectedCalNcis: new Set(),
+  sortCronograma: { col: 'hostDestino', asc: true },
+  cronEstadoFiltro: 'ALL'
 };
 
 const $ = s => document.querySelector(s);
@@ -1979,65 +1981,32 @@ function renderCronograma() {
     });
   }
 
-  let servidoresEnTabla = servidoresEnMes;
-  if (state.selectedCalMonth !== 'PEND_PROG' && state.selectedCalMonth !== 'NO_APLICA' && state.selectedCalDay) {
-    servidoresEnTabla = servidoresEnMes.filter(s => s.fechaRemSoObj && s.fechaRemSoObj.getDate() === state.selectedCalDay);
-  }
+  const sortCronVal = (r, col) => {
+    if (col === 'fechaRemSo') return r.fechaRemSoObj ? r.fechaRemSoObj.getTime() : Number.MAX_SAFE_INTEGER;
+    if (col === 'estadoRemediacionSO') return r.estadoRemediacionSO || '';
+    if (col === 'ocRemSo') return r.ocRemSo || '';
+    if (col === 'ticketAprov') return r.ticketAprov || '';
+    if (col === 'grupoPrioridad') return r.grupoPrioridad || '';
+    if (col === 'so') return r.soDestino || r.so || '';
+    if (col === 'detalle') return r.estadoRemediacionSO === 'NO_APLICA' ? (r.detalleNoAplicaSO || '') : (r.queFalta || '');
+    return r[col] || '';
+  };
+  const remediadosMes = servidoresEnMes.filter(r => r.estadoRemediacionSO === 'REMEDIADO');
+  const pendientesMes = servidoresEnMes.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
+  const noAplicaMes = servidoresEnMes.filter(r => r.estadoRemediacionSO === 'NO_APLICA');
+  const ticketsDe = rows => new Set(rows.map(r => r.ticketAprov).filter(Boolean)).size;
+  let baseTabla = servidoresEnMes;
+  if (state.cronEstadoFiltro === 'REMEDIADO') baseTabla = remediadosMes;
+  else if (state.cronEstadoFiltro === 'PENDIENTE') baseTabla = pendientesMes;
+  else if (state.cronEstadoFiltro === 'NO_APLICA') baseTabla = noAplicaMes;
+  const servidoresEnTabla = [...baseTabla].sort((a,b) => {
+    let A=sortCronVal(a,state.sortCronograma.col), B=sortCronVal(b,state.sortCronograma.col);
+    if (typeof A === 'number' && typeof B === 'number') return state.sortCronograma.asc ? A-B : B-A;
+    return String(A).localeCompare(String(B), 'es', {numeric:true, sensitivity:'base'}) * (state.sortCronograma.asc ? 1 : -1);
+  });
+  const cronArrow = col => state.sortCronograma.col === col ? (state.sortCronograma.asc ? '▲' : '▼') : '↕';
+  const cronCardStyle = f => state.cronEstadoFiltro === f ? 'border:2px solid var(--c-blue);background:var(--c-blue-bg);' : '';
 
-  let calendarioHtml = '';
-  if (state.selectedCalMonth !== 'PEND_PROG' && state.selectedCalMonth !== 'NO_APLICA') {
-    const [yStr, mStr] = state.selectedCalMonth.split('-');
-    const year = parseInt(yStr, 10);
-    const month = parseInt(mStr, 10) - 1;
-
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    const eventosPorDia = {};
-    servidoresEnMes.forEach(s => {
-      if (!s.fechaRemSoObj) return;
-      const dia = s.fechaRemSoObj.getDate();
-      if (!eventosPorDia[dia]) eventosPorDia[dia] = [];
-      eventosPorDia[dia].push(s);
-    });
-
-    const dayHeaders = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-    let cellsHtml = '';
-
-    for (let i = 0; i < firstDay; i++) {
-      cellsHtml += `<div class="cal-cell empty"></div>`;
-    }
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const evs = eventosPorDia[day] || [];
-      const hasEvents = evs.length > 0;
-      const isActive = state.selectedCalDay === day;
-
-      let badgesHtml = '';
-      if (hasEvents) {
-        const okCount = evs.filter(e => e.estadoRemediacionSO === 'REMEDIADO').length;
-        const pendCount = evs.length - okCount;
-        if (pendCount > 0) badgesHtml += `<div class="cal-tag cal-tag-pend">⏳ ${pendCount} Pendientes</div>`;
-        if (okCount > 0) badgesHtml += `<div class="cal-tag cal-tag-ok">✅ ${okCount} Conformes</div>`;
-      }
-
-      cellsHtml += `
-        <div class="cal-cell ${hasEvents ? 'has-events clickable-day' : ''} ${isActive ? 'active-day' : ''}" ${hasEvents ? `onclick="filtrarTablaPorDia(${day})"` : ''}>
-          <div class="cal-day-num">${day}</div>
-          <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
-            ${badgesHtml}
-          </div>
-        </div>
-      `;
-    }
-
-    calendarioHtml = `
-      <div class="cal-grid" style="margin-bottom:14px;">
-        ${dayHeaders.map(h => `<div class="cal-day-head">${h}</div>`).join('')}
-        ${cellsHtml}
-      </div>
-    `;
-  }
 
   $('#tabBody').innerHTML = `
     <div class="row r-2">
@@ -2056,8 +2025,8 @@ function renderCronograma() {
     <div class="tile">
       <div class="th" style="flex-wrap:wrap; gap:10px;">
         <div>
-          <h3>Calendario Mensual de Remediaciones de Hardening</h3>
-          <div class="sub">Selecciona un mes en el filtro y haz clic en un día específico para ver su detalle operativo</div>
+          <h3>Detalle de Remediaciones de Hardening</h3>
+          <div class="sub">Filtra por Mes de Remediación y NCI para revisar el detalle operativo de servidores.</div>
         </div>
       </div>
 
@@ -2092,26 +2061,30 @@ function renderCronograma() {
           </div>
         </div>
 
-        ${calendarioHtml}
-
+        <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin:14px 0 10px;">
+          <div class="kpi-card info clickable" style="${cronCardStyle('ALL')}" onclick="state.cronEstadoFiltro='ALL';renderCronograma();"><div class="lbl">Total servidores ↘</div><div class="val">${fmt(servidoresEnMes.length)}</div><div class="sub">${fmt(ticketsDe(servidoresEnMes))} tickets únicos asociados</div></div>
+          <div class="kpi-card ok clickable" style="${cronCardStyle('REMEDIADO')}" onclick="state.cronEstadoFiltro='REMEDIADO';renderCronograma();"><div class="lbl">Remediados ↘</div><div class="val">${fmt(remediadosMes.length)}</div><div class="sub">${fmt(ticketsDe(remediadosMes))} tickets · Hardening S.O conforme</div></div>
+          <div class="kpi-card warn clickable" style="${cronCardStyle('PENDIENTE')}" onclick="state.cronEstadoFiltro='PENDIENTE';renderCronograma();"><div class="lbl">Pendientes ↘</div><div class="val">${fmt(pendientesMes.length)}</div><div class="sub">${fmt(ticketsDe(pendientesMes))} tickets · requieren remediación</div></div>
+          <div class="kpi-card clickable" style="${cronCardStyle('NO_APLICA')}" onclick="state.cronEstadoFiltro='NO_APLICA';renderCronograma();"><div class="lbl">No aplica / Exentos ↘</div><div class="val">${fmt(noAplicaMes.length)}</div><div class="sub">${fmt(ticketsDe(noAplicaMes))} tickets asociados</div></div>
+        </div>
+        <div style="padding:9px 12px;background:#FAF8F5;border:1px solid var(--k-line);border-radius:6px;margin-bottom:10px;font-size:12.5px;"><b>Conciliación del periodo:</b> ${fmt(remediadosMes.length)} Remediados + ${fmt(pendientesMes.length)} Pendientes + ${fmt(noAplicaMes.length)} No Aplica = <b>${fmt(servidoresEnMes.length)} servidores</b> ${remediadosMes.length+pendientesMes.length+noAplicaMes.length===servidoresEnMes.length?'✅':'⚠️'}</div>
         <div style="font-weight:700;font-size:13.5px;margin-top:6px;display:flex;justify-content:space-between;align-items:center;">
-          <span>Detalle de Servidores: ${state.selectedCalDay ? `Día ${state.selectedCalDay} seleccionado` : 'Todo el periodo'} (${servidoresEnTabla.length} registros)</span>
-          ${state.selectedCalDay ? `<button class="btn btn-ghost btn-sm" onclick="filtrarTablaPorDia(null)">Quitar filtro de día</button>` : ''}
+          <span>Detalle de Servidores: ${state.cronEstadoFiltro==='ALL'?'Todo el periodo':state.cronEstadoFiltro} (${servidoresEnTabla.length} registros)</span>
         </div>
 
         <div class="tw" style="max-height: 480px;">
           <table class="dt">
             <thead>
               <tr>
-                <th>Servidor Destino</th>
-                <th>Servidor Origen</th>
-                <th>Fecha de Remediación S.O</th>
-                <th>Estado Remediado S.O</th>
-                <th>OC Remediación S.O</th>
-                <th>Ticket Aprov.</th>
-                <th>Grupo</th>
-                <th>Sistema Operativo</th>
-                <th>Detalle / Motivo</th>
+                <th class="sortable" data-cron-sort="hostDestino">Servidor Destino <span class="sort-arrow">${cronArrow('hostDestino')}</span></th>
+                <th class="sortable" data-cron-sort="servidor">Servidor Origen <span class="sort-arrow">${cronArrow('servidor')}</span></th>
+                <th class="sortable" data-cron-sort="fechaRemSo">Fecha de Remediación S.O <span class="sort-arrow">${cronArrow('fechaRemSo')}</span></th>
+                <th class="sortable" data-cron-sort="estadoRemediacionSO">Estado Remediado S.O <span class="sort-arrow">${cronArrow('estadoRemediacionSO')}</span></th>
+                <th class="sortable" data-cron-sort="ocRemSo">OC Remediación S.O <span class="sort-arrow">${cronArrow('ocRemSo')}</span></th>
+                <th class="sortable" data-cron-sort="ticketAprov">Ticket Aprov. <span class="sort-arrow">${cronArrow('ticketAprov')}</span></th>
+                <th class="sortable" data-cron-sort="grupoPrioridad">Grupo <span class="sort-arrow">${cronArrow('grupoPrioridad')}</span></th>
+                <th class="sortable" data-cron-sort="so">Sistema Operativo <span class="sort-arrow">${cronArrow('so')}</span></th>
+                <th class="sortable" data-cron-sort="detalle">Detalle / Motivo <span class="sort-arrow">${cronArrow('detalle')}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2146,6 +2119,15 @@ function renderCronograma() {
       </div>
     </div>
   `;
+
+  $$('#tabBody th[data-cron-sort]').forEach(th => {
+    th.onclick = () => {
+      const col = th.dataset.cronSort;
+      if (state.sortCronograma.col === col) state.sortCronograma.asc = !state.sortCronograma.asc;
+      else state.sortCronograma = { col, asc: true };
+      renderCronograma();
+    };
+  });
 
   const updateCalNciLabel = () => {
     const selected = state.selectedCalNcis && state.selectedCalNcis.size > 0 ? state.selectedCalNcis : new Set(nciDisponibles);
@@ -2204,6 +2186,7 @@ function renderCronograma() {
     selCalMes.onchange = (e) => {
       state.selectedCalMonth = e.target.value;
       state.selectedCalDay = null;
+      state.cronEstadoFiltro = 'ALL';
       renderCronograma();
     };
   }
@@ -3288,7 +3271,7 @@ function render() {
     saneamiento: '🎯 Saneamiento Integral de Tickets',
     entregables: 'Métricas de Tickets Entregables vs No Entregables',
     informe: '📑 Informe Técnico y Ejecutivo de Service Delivery',
-    cronograma: '📅 Calendario Mensual de Remediación de Hardening',
+    cronograma: '📅 Detalle de Remediaciones de Hardening',
     hardening: '🛡️ Diagnóstico y Plan de Acción: Pendientes de Hardening',
     grupos: 'Distribución por Grupos Prioritarios',
     controles: 'Controles de Seguridad del Servidor',
