@@ -1940,19 +1940,22 @@ function renderCronograma() {
   const dedup = dedupeByDestServer(v);
   const activos = dedup.filter(r => !r.esServidorDesestimado);
 
-  const tktAllMap = computeTicketsMap(v);
-  const allTkts = Object.keys(tktAllMap);
-
-  const tktsPendientes = allTkts.filter(t => {
-    const item = tktAllMap[t];
-    return item.tieneObsTicket || item.conBrechaTecnica > 0 || item.pendientesEntrega > 0;
+  // MISMA clasificación ejecutiva usada en Distribución por Grupos.
+  // Pendientes = todos los tickets - Todo OK - Pend. G.A.
+  const tktPendMap = computeTicketsMap(v);
+  const allPendTkts = Object.keys(tktPendMap);
+  const okPendTkts = allPendTkts.filter(t => {
+    const i = tktPendMap[t];
+    return !i.tieneObsTicket && !i.esPendienteGA && i.pendientesEntrega === 0 && i.conBrechaTecnica === 0 && i.entregados > 0;
   });
+  const gaPendTkts = allPendTkts.filter(t => tktPendMap[t].esPendienteGA);
+  const tktsPendientes = allPendTkts.filter(t => !okPendTkts.includes(t) && !gaPendTkts.includes(t));
+  const tktsPendSet = new Set(tktsPendientes);
 
-  const servPendHardening = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
-
-  // Periodos dinámicos: se obtienen directamente de las fechas reales del Excel.
-  const baseCalendarioNci = dedup;
+  // El calendario/detalle sólo trabaja con servidores pertenecientes a esos mismos tickets pendientes.
+  const baseCalendarioNci = dedup.filter(r => tktsPendSet.has(r.ticketAprov));
   const activosCalendarioNci = baseCalendarioNci.filter(r => !r.esServidorDesestimado);
+  const servPendHardening = activosCalendarioNci.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
 
   const mesesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const mesesKeys = uniq(baseCalendarioNci.filter(r => r.fechaRemSoObj).map(r => {
@@ -2020,9 +2023,9 @@ function renderCronograma() {
   $('#tabBody').innerHTML = `
     <div class="row r-2">
       <div class="kpi-card alert" style="border-left:4px solid var(--c-alert);">
-        <div class="lbl">1. Tickets Pendientes por Sanear el Desvío</div>
+        <div class="lbl">1. Tickets Pendientes del Saneamiento Integral</div>
         <div class="val">${fmt(tktsPendientes.length)} <small style="font-size:14px;font-weight:700">tickets</small></div>
-        <div class="sub">Tickets con observación documental o brecha técnica pendiente</div>
+        <div class="sub">Mismo universo ejecutivo de Tickets Pendientes usado en Distribución por Grupos</div>
       </div>
       <div class="kpi-card warn" style="border-left:4px solid var(--c-warn);">
         <div class="lbl">2. Servidores por Remediar (Hardening S.O Pendiente)</div>
@@ -2035,7 +2038,7 @@ function renderCronograma() {
       <div class="th" style="flex-wrap:wrap; gap:10px;">
         <div>
           <h3>Detalle de Remediaciones de Hardening</h3>
-          <div class="sub">Filtra por Mes de Remediación y NCI para revisar el detalle operativo de servidores.</div>
+          <div class="sub">Universo limitado a Tickets Pendientes del saneamiento integral. Filtra por Mes de Remediación y NCI Homologado global.</div>
         </div>
       </div>
 
