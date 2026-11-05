@@ -2720,9 +2720,9 @@ function renderGrupos() {
 
     return {
       name: gName, countTkts, dedupCount: dedup.length,
-      tOk: tktsOk.length, sOk,
-      tGa: tktsGA.length, sGa,
-      tPend: tktsPend.length, sPend
+      tOk: tktsOk.length, sOk: servsOk,
+      tGa: tktsGA.length, sGa: servsGA,
+      tPend: tktsPend.length, sPend: servsPend
     };
   });
 
