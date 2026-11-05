@@ -383,7 +383,7 @@ table.dt tbody tr:hover td { background: #FAF8F5; cursor: pointer; }
             <option value="SOLO_TKT_OK">⚠️ Ticket OK / Servidor No Comp.</option>
           </select>
         </div>
-        <div class="sl"><label>NCI Homologado</label><select id="fNci"></select></div>
+        <div class="sl"><label>NCI Homologado (Múltiple)</label><button type="button" class="multi-btn" id="btnNciToggle"><span id="txtNciLabel" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">Todos los NCI</span><span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span></button><div class="multi-dropdown hide" id="dropdownNci" style="min-width:300px;"></div></div>
         <div class="sl"><label>Estado Entrega</label><select id="fEntrega"></select></div>
         
         <div class="sl">
@@ -481,14 +481,14 @@ const state = {
     grupos: new Set(),
     soFamilia: '__ALL__',
     condicion: '__ALL__',
-    nci: '__ALL__',
+    ncis: new Set(),
     entrega: '__ALL__',
     ambientes: new Set()
   },
   sortHardening: { col: 'ambiente', asc: true },
   selectedCalMonth: '2026-10',
   selectedCalDay: null,
-  selectedCalNcis: new Set(),
+  selectedCalNcis: null,
   sortCronograma: { col: 'hostDestino', asc: true },
   cronEstadoFiltro: 'ALL'
 };
@@ -896,7 +896,7 @@ function applyFilters() {
   if (state.filters.grupos && state.filters.grupos.size > 0) pool = pool.filter(r => state.filters.grupos.has(r.grupoPrioridad));
   if (state.filters.soFamilia !== '__ALL__') pool = pool.filter(r => r.soFamilia === state.filters.soFamilia);
   if (state.filters.condicion !== '__ALL__') pool = pool.filter(r => r.condicionCodigo === state.filters.condicion);
-  if (state.filters.nci !== '__ALL__') pool = pool.filter(r => r.nci === state.filters.nci);
+  if (state.filters.ncis && state.filters.ncis.size > 0) pool = pool.filter(r => state.filters.ncis.has(r.nci));
   if (state.filters.entrega !== '__ALL__') pool = pool.filter(r => r.estadoEntrega === state.filters.entrega);
   if (state.filters.ambientes && state.filters.ambientes.size > 0) pool = pool.filter(r => state.filters.ambientes.has(r.ambiente));
   state.view = pool;
@@ -913,7 +913,6 @@ function initFilters() {
 
   const qs = uniq(state.raw.map(r => r.q)).sort();
   fillSelect('#fQ', qs, state.filters.q);
-  fillSelect('#fNci', uniq(base.map(r => r.nci)).filter(Boolean).sort(), state.filters.nci);
   fillSelect('#fEntrega', uniq(base.map(r => r.estadoEntrega)).sort(), state.filters.entrega);
 
   const allGruposKeys = uniq(state.raw.map(r => r.grupoPrioridad)).filter(Boolean).sort();
@@ -977,6 +976,17 @@ function initFilters() {
     $('#dropdownAmbientes').classList.add('hide');
   };
 
+  const allNcis = uniq(base.map(r => r.nci)).filter(Boolean).sort();
+  state.filters.ncis = new Set(allNcis);
+  const ddNci = $('#dropdownNci');
+  ddNci.innerHTML = `<label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;"><input type="checkbox" id="chkNciAll" checked> Seleccionar Todos</label><div class="multi-divider"></div>${allNcis.map(n=>`<label class="multi-opt"><input type="checkbox" class="chk-nci" value="${esc(n)}" checked> ${esc(n)}</label>`).join('')}`;
+  const updateNciLabel=()=>{const n=state.filters.ncis.size,l=$('#txtNciLabel'); if(n===allNcis.length)l.textContent=`Todos (${n})`; else if(n===0)l.textContent='Ninguno (0)'; else if(n<=2)l.textContent=Array.from(state.filters.ncis).join(', '); else l.textContent=`${n} NCI seleccionados`;};
+  const chkNciAll=$('#chkNciAll'), chkNcis=$$('.chk-nci');
+  chkNciAll.onchange=e=>{chkNcis.forEach(c=>c.checked=e.target.checked); state.filters.ncis=e.target.checked?new Set(allNcis):new Set(); updateNciLabel(); applyFilters();};
+  chkNcis.forEach(c=>c.onchange=()=>{c.checked?state.filters.ncis.add(c.value):state.filters.ncis.delete(c.value); chkNciAll.checked=state.filters.ncis.size===allNcis.length; updateNciLabel(); applyFilters();});
+  $('#btnNciToggle').onclick=e=>{e.stopPropagation();ddNci.classList.toggle('hide');$('#dropdownGrupos').classList.add('hide');$('#dropdownAmbientes').classList.add('hide');};
+  updateNciLabel();
+
   const allAmbs = uniq(state.raw.map(r => r.ambiente)).filter(Boolean).sort();
   state.filters.ambientes = new Set(allAmbs);
 
@@ -1035,12 +1045,12 @@ function initFilters() {
   document.addEventListener('click', e => {
     if (!e.target.closest('#btnGruposToggle') && !e.target.closest('#dropdownGrupos')) ddGrupos.classList.add('hide');
     if (!e.target.closest('#btnAmbientesToggle') && !e.target.closest('#dropdownAmbientes')) ddAmbientes.classList.add('hide');
+    if (!e.target.closest('#btnNciToggle') && !e.target.closest('#dropdownNci')) ddNci.classList.add('hide');
   });
 
   $('#fQ').onchange = e => { state.filters.q = e.target.value; applyFilters(); };
   $('#fSO').onchange = e => { state.filters.soFamilia = e.target.value; applyFilters(); };
   $('#fCondicion').onchange = e => { state.filters.condicion = e.target.value; applyFilters(); };
-  $('#fNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
   $('#fEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
 
   $('#btnReset').onclick = () => {
@@ -1049,7 +1059,7 @@ function initFilters() {
       grupos: new Set(allGruposKeys),
       soFamilia: '__ALL__',
       condicion: '__ALL__',
-      nci: '__ALL__',
+      ncis: new Set(allNcis),
       entrega: '__ALL__',
       ambientes: new Set(allAmbs)
     };
@@ -1057,6 +1067,7 @@ function initFilters() {
     $('#fCondicion').value = '__ALL__';
     chkGrupoAll.checked = true;
     chkGrupos.forEach(c => { c.checked = true; });
+    chkNciAll.checked = true; chkNcis.forEach(c => { c.checked = true; }); updateNciLabel();
     chkAmbAll.checked = true;
     chkAmbs.forEach(c => { c.checked = true; });
     updateGruposLabel();
@@ -1209,7 +1220,7 @@ function renderInforme() {
   const filtrosActivos = [
     state.filters.q!=='__ALL__' ? `Q: ${state.filters.q}` : '',
     state.filters.soFamilia!=='__ALL__' ? `S.O.: ${state.filters.soFamilia}` : '',
-    state.filters.nci!=='__ALL__' ? `NCI: ${state.filters.nci}` : '',
+    state.filters.ncis && state.filters.ncis.size && state.filters.ncis.size < uniq(state.raw.map(r=>r.nci).filter(Boolean)).length ? `NCI: ${Array.from(state.filters.ncis).join(', ')}` : '',
     state.filters.entrega!=='__ALL__' ? `Entrega: ${state.filters.entrega}` : ''
   ].filter(Boolean);
   const texto = `Sobre un universo visible de ${fmt(totalTickets)} tickets de aprovisionamiento, ${fmt(d.saneados.length)} se encuentran saneados y validados (${pct(d.saneados.length,totalTickets)}), ${fmt(d.ga.length)} están técnicamente saneados y pendientes de validación de Gestión de Activos (${pct(d.ga.length,totalTickets)}), y ${fmt(d.pendientes.length)} mantienen alguna brecha técnica, de entrega o de gestión (${pct(d.pendientes.length,totalTickets)}). Estos tickets representan ${fmt(totalServ)} servidores destino únicos. A nivel técnico, ${fmt(d.servCompliance.length)} de ${fmt(d.activos.length)} servidores activos cumplen integralmente los controles de compliance, mientras ${fmt(d.servBrecha.length)} aún presentan al menos un control pendiente.${top.length ? ' Las principales brechas actuales son ' + top.map(x=>`${x.name}: ${x.tickets} tickets / ${x.servidores} servidores`).join('; ') + '.' : ' No se identifican brechas técnicas en la vista actual.'}`;
@@ -1940,9 +1951,7 @@ function renderCronograma() {
   const servPendHardening = activos.filter(r => r.estadoRemediacionSO === 'PENDIENTE');
 
   // Periodos dinámicos: se obtienen directamente de las fechas reales del Excel.
-  const nciDisponibles = uniq(dedup.map(r => r.nci).filter(Boolean)).sort();
-  const nciSelActivos = state.selectedCalNcis && state.selectedCalNcis.size > 0 ? state.selectedCalNcis : new Set(nciDisponibles);
-  const baseCalendarioNci = dedup.filter(r => nciSelActivos.has(r.nci));
+  const baseCalendarioNci = dedup;
   const activosCalendarioNci = baseCalendarioNci.filter(r => !r.esServidorDesestimado);
 
   const mesesNombres = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -2041,20 +2050,6 @@ function renderCronograma() {
                 </option>
               `).join('')}
             </select>
-            <div class="sl" style="margin-left:8px;">
-              <label>NCI (Múltiple)</label>
-              <button type="button" class="multi-btn" id="btnCalNciToggle" style="min-width:230px;">
-                <span id="txtCalNciLabel" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;">Todos los NCI</span>
-                <span style="font-size:10px;margin-left:6px;color:var(--k-slate);">▼</span>
-              </button>
-              <div class="multi-dropdown hide" id="dropdownCalNci" style="min-width:300px;">
-                <label class="multi-opt" style="font-weight:700;border-bottom:1px solid var(--k-line-subtle);padding-bottom:6px;">
-                  <input type="checkbox" id="chkCalNciAll" ${nciSelActivos.size === nciDisponibles.length ? 'checked' : ''}> Seleccionar Todos
-                </label>
-                <div class="multi-divider"></div>
-                ${nciDisponibles.map(n => `<label class="multi-opt"><input type="checkbox" class="chk-cal-nci" value="${esc(n)}" ${nciSelActivos.has(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}
-              </div>
-            </div>
           </div>
           <div style="font-size:12px; color:var(--k-slate);">
             Total en este periodo: <b>${servidoresEnMes.length}</b> servidores
@@ -2129,56 +2124,6 @@ function renderCronograma() {
     };
   });
 
-  const updateCalNciLabel = () => {
-    const selected = state.selectedCalNcis && state.selectedCalNcis.size > 0 ? state.selectedCalNcis : new Set(nciDisponibles);
-    const lbl = $('#txtCalNciLabel');
-    if (!lbl) return;
-    if (selected.size === nciDisponibles.length) lbl.textContent = `Todos los NCI (${nciDisponibles.length})`;
-    else if (selected.size === 0) lbl.textContent = 'Ningún NCI';
-    else if (selected.size <= 2) lbl.textContent = Array.from(selected).join(', ');
-    else lbl.textContent = `${selected.size} NCI seleccionados`;
-  };
-  updateCalNciLabel();
-
-  $('#btnCalNciToggle').onclick = e => {
-    e.stopPropagation();
-    const dd = $('#dropdownCalNci');
-    const wasOpen = !dd.classList.contains('hide');
-    dd.classList.toggle('hide');
-    if (wasOpen) renderCronograma();
-  };
-  $('#chkCalNciAll').onchange = e => {
-    const checked = e.target.checked;
-    state.selectedCalNcis = checked ? new Set(nciDisponibles) : new Set();
-    $$('.chk-cal-nci').forEach(c => { c.checked = checked; });
-    state.selectedCalDay = null;
-    updateCalNciLabel();
-    // Mantener el desplegable abierto mientras el usuario continúa seleccionando.
-    $('#chkCalNciAll').checked = checked;
-  };
-  $$('.chk-cal-nci').forEach(c => {
-    c.onchange = () => {
-      // Inicializar una sola vez; un Set vacío es una selección válida (ningún NCI).
-      if (!state.selectedCalNcis) state.selectedCalNcis = new Set(nciDisponibles);
-      if (c.checked) state.selectedCalNcis.add(c.value); else state.selectedCalNcis.delete(c.value);
-      const allBox = $('#chkCalNciAll');
-      if (allBox) allBox.checked = state.selectedCalNcis.size === nciDisponibles.length;
-      state.selectedCalDay = null;
-      updateCalNciLabel();
-      // Refrescar el calendario sólo al cerrar el selector para permitir selección múltiple continua.
-    };
-  });
-
-  // Al hacer clic fuera del multiselect, aplicar todas las selecciones de una sola vez.
-  const calNciWrap = $('#btnCalNciToggle').closest('.sl');
-  const closeCalNciAndApply = e => {
-    const dd = $('#dropdownCalNci');
-    if (!dd || dd.classList.contains('hide')) return;
-    if (calNciWrap && calNciWrap.contains(e.target)) return;
-    dd.classList.add('hide');
-    document.removeEventListener('click', closeCalNciAndApply, true);
-    renderCronograma();
-  };
   // El selector de mes se enlaza al final, una vez reconstruido e inicializado todo el multiselect NCI.
   // Cada cambio de mes genera un DOM nuevo y renderCronograma() vuelve a enlazar estos controles.
   const selCalMes = $('#selCalMes');
@@ -2191,7 +2136,6 @@ function renderCronograma() {
     };
   }
 
-  setTimeout(() => document.addEventListener('click', closeCalNciAndApply, true), 0);
 }
 
 function renderHardening() {
@@ -3057,7 +3001,7 @@ function renderDetalle() {
           <input type="text" id="tbSearch" placeholder="Buscar por servidor destino, origen, ticket..." style="min-width:240px;">
           <select id="dtFilterNci" style="min-width:170px;">
             <option value="__ALL__">Todos los NCI</option>
-            ${baseNci.map(n => `<option value="${esc(n)}" ${state.filters.nci===n?'selected':''}>${esc(n)}</option>`).join('')}
+            ${baseNci.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}
           </select>
           <select id="dtFilterEntrega" style="min-width:180px;">
             <option value="__ALL__">Todas las Entregas</option>
@@ -3175,7 +3119,7 @@ function renderDetalle() {
   };
 
   $('#tbSearch').oninput = filterDetalleTable;
-  $('#dtFilterNci').onchange = e => { state.filters.nci = e.target.value; applyFilters(); };
+  $('#dtFilterNci').onchange = e => { state.filters.ncis = e.target.value==='__ALL__' ? new Set(baseNci) : new Set([e.target.value]); applyFilters(); };
   $('#dtFilterEntrega').onchange = e => { state.filters.entrega = e.target.value; applyFilters(); };
 }
 
